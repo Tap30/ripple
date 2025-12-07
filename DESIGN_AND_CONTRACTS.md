@@ -64,15 +64,15 @@ All custom functionality is abstracted via interfaces:
 
 The structure must be JSON-serializable.
 
-| Field        | Type                   | Description                                      |
-| :----------- | :--------------------- | :----------------------------------------------- |
-| `name`       | `string`               | Event identifier.                                |
-| `payload?`   | `Map<string, unknown>` | Event data (optional).                           |
-| `timestamp`  | `number`               | Unix timestamp in milliseconds.                  |
-| `context?`   | `Map<string, unknown>` | Snapshot of global context.                      |
-| `sessionId?` | `string`               | Session identifier (browser only).               |
-| `metadata?`  | `EventMetadata`        | Event-specific metadata (e.g., schema version).  |
-| `platform?`  | `Platform`             | Platform information (auto-detected by runtime). |
+| Field       | Type                             | Description                                                |
+| :---------- | :------------------------------- | :--------------------------------------------------------- |
+| `name`      | `string`                         | Event identifier.                                          |
+| `payload`   | `Map<string, unknown>` or `null` | (optional) Event data.                                     |
+| `issuedAt`  | `number`                         | Unix timestamp in milliseconds.                            |
+| `context?`  | `Map<string, unknown>`           | Snapshot of global context.                                |
+| `sessionId` | `string` or `null`               | Session identifier (browser only).                         |
+| `metadata`  | `EventMetadata` or `null`        | (optional) Event-specific metadata (e.g., schema version). |
+| `platform`  | `Platform` or `null`             | Platform information (auto-detected by runtime).           |
 
 #### EventMetadata
 
