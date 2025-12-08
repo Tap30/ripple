@@ -39,7 +39,8 @@ The SDK uses four primary, single-responsibility components:
 All custom functionality is abstracted via interfaces:
 
 - **`HttpAdapter`**: Handles API communication. Sends POST request with
-  `Authorization: Bearer {apiKey}` header. Must return an `HttpResponse`.
+  `X-API-Key: {apiKey}` (or any other custom name) header. Must return an
+  `HttpResponse`.
 - **`StorageAdapter`**: Handles event persistence on failure or initialization.
   Methods (`save()`, `load()`, `clear()`) must be **idempotent** and handle
   errors gracefully.
@@ -52,13 +53,14 @@ All custom functionality is abstracted via interfaces:
 
 ### 1. `Config` (Initialization)
 
-| Field            | Type     | Constraint/Default                            |
-| :--------------- | :------- | :-------------------------------------------- |
-| `apiKey`         | `string` | **Required**.                                 |
-| `endpoint`       | `string` | **Required**. Valid HTTPS URL.                |
-| `flushInterval?` | `number` | Auto-flush interval in ms. **Default: 5000**. |
-| `maxBatchSize?`  | `number` | Max events per batch. **Default: 10**.        |
-| `maxRetries?`    | `number` | Max retry attempts. **Default: 3**.           |
+| Field            | Type     | Constraint/Default                                               |
+| :--------------- | :------- | :--------------------------------------------------------------- |
+| `apiKey`         | `string` | **Required:** API authentication key.                            |
+| `endpoint`       | `string` | **Required:** Valid HTTPS URL.                                   |
+| `apiKeyHeader?`  | `string` | **Optional:** Header name for API key **(Default: "X-API-Key")** |
+| `flushInterval?` | `number` | **Optional:** Auto-flush interval in ms. **(Default: 5000)**.    |
+| `maxBatchSize?`  | `number` | **Optional:** Max events per batch. **(Default: 10)**.           |
+| `maxRetries?`    | `number` | **Optional:** Max retry attempts. **(Default: 3)**.              |
 
 ### 2. `Event` (API Payload)
 
