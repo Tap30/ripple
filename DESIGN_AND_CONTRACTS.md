@@ -61,6 +61,14 @@ All custom functionality is abstracted via interfaces:
 | `flushInterval?` | `number` | **Optional:** Auto-flush interval in ms. **(Default: 5000)**.    |
 | `maxBatchSize?`  | `number` | **Optional:** Max events per batch. **(Default: 10)**.           |
 | `maxRetries?`    | `number` | **Optional:** Max retry attempts. **(Default: 3)**.              |
+| `adapters?`      | `object` | **Optional:** Custom HTTP and storage adapters.                  |
+
+#### Adapters Configuration
+
+| Field             | Type             | Constraint/Default                                    |
+| :---------------- | :--------------- | :---------------------------------------------------- |
+| `httpAdapter?`    | `HttpAdapter`    | **Optional:** Custom HTTP adapter for API requests.   |
+| `storageAdapter?` | `StorageAdapter` | **Optional:** Custom storage adapter for persistence. |
 
 ### 2. `Event` (API Payload)
 
@@ -181,8 +189,21 @@ Where $\text{baseDelay}$ is $1000\text{ms}$ and $\text{jitter}$ is random
 
 ### C. Future Improvements
 
-1. **Event Validation**: Add optional schema validation.
-2. **Middleware System**: Introduce hooks for event transformation/filtering.
-3. **Offline Queue Limits**: Implement a maximum queue size with eviction
-   policies.
-4. **Batch Compression**: Add optional Gzip compression.
+1. **Event Validation**: Add optional schema validation for event payloads and
+   metadata.
+2. **Middleware System**: Introduce hooks for event transformation, filtering,
+   and enrichment.
+3. **Offline Queue Limits**: Implement maximum queue size with configurable
+   eviction policies (FIFO, LRU).
+4. **Batch Compression**: Add optional Gzip compression for large event batches.
+5. **Enhanced Error Handling**: Provide detailed error categorization and custom
+   error handlers.
+6. **Performance Monitoring**: Built-in metrics for queue size, flush frequency,
+   and retry rates.
+7. **Event Sampling**: Configurable sampling rates for high-volume scenarios.
+8. **Custom Serialization**: Support for custom event serialization formats
+   (MessagePack, Avro).
+9. **Background Sync**: Intelligent background synchronization with network
+   state awareness.
+10. **Event Deduplication**: Optional duplicate event detection based on
+    configurable keys.
