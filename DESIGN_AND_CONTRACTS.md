@@ -16,7 +16,7 @@ extensibility.
 | **Type Safety**           | Maximize compile-time error detection and developer experience using language-specific typing (generics, type hints, etc.).                                      |
 | **Dependency Injection**  | Use **constructor injection** for adapters (e.g., HTTP, Storage) to ensure **testability** and **flexibility**. Pass interfaces/protocols, not concrete classes. |
 | **Extensibility**         | Define clear interfaces for all key extension points (e.g., `HttpAdapter`, `StorageAdapter`).                                                                    |
-| **Concurrency Safety**    | Protect all shared state (queues, context, flush operations) using appropriate synchronization primitives (mutexes, locks).                                      |
+| **Concurrency Safety**    | Protect all shared state (queues, metadata, flush operations) using appropriate synchronization primitives (mutexes, locks).                                     |
 | **Minimal Dependencies**  | Keep core dependencies restricted to the standard library to minimize bundle size and security risk.                                                             |
 | **Initialization Safety** | Prevent data loss by requiring `init()` before `track()`. Throw errors for invalid operation order.                                                              |
 | **Idiomatic APIs**        | Adhere to language-specific conventions (e.g., naming, error handling, async patterns) while maintaining behavioral consistency.                                 |
@@ -27,12 +27,12 @@ extensibility.
 
 The SDK uses four primary, single-responsibility components:
 
-| Component          | Design Pattern            | Primary Responsibilities                                                                                      |
-| :----------------- | :------------------------ | :------------------------------------------------------------------------------------------------------------ |
-| **Client**         | **Facade**                | Public API (`track`, `setContext`, `flush`, `init`, `dispose`). Coordinates ContextManager and Dispatcher.    |
-| **ContextManager** | **Repository**            | Stores and retrieves global context. Provides thread-safe context snapshots for events.                       |
-| **Dispatcher**     | **Command Queue**         | Manages event queue, batch processing, **atomic flush operations**, and retry logic with exponential backoff. |
-| **Mutex**          | **Mutual Exclusion Lock** | Serializes concurrent operations (e.g., `flush()`) to prevent race conditions.                                |
+| Component           | Design Pattern            | Primary Responsibilities                                                                                      |
+| :------------------ | :------------------------ | :------------------------------------------------------------------------------------------------------------ |
+| **Client**          | **Facade**                | Public API (`track`, `setMetadata`, `flush`, `init`, `dispose`). Coordinates MetadataManager and Dispatcher.  |
+| **MetadataManager** | **Repository**            | Stores and retrieves global metadata. Provides thread-safe metadata snapshots for events.                     |
+| **Dispatcher**      | **Command Queue**         | Manages event queue, batch processing, **atomic flush operations**, and retry logic with exponential backoff. |
+| **Mutex**           | **Mutual Exclusion Lock** | Serializes concurrent operations (e.g., `flush()`) to prevent race conditions.                                |
 
 ### Adapter Interfaces
 
@@ -79,16 +79,9 @@ The structure must be JSON-serializable.
 | `name`      | `string`                         | Event identifier.                                          |
 | `payload`   | `Map<string, unknown>` or `null` | (optional) Event data.                                     |
 | `issuedAt`  | `number`                         | Unix timestamp in milliseconds.                            |
-| `context?`  | `Map<string, unknown>`           | Snapshot of global context.                                |
 | `sessionId` | `string` or `null`               | Session identifier (browser only).                         |
-| `metadata`  | `EventMetadata` or `null`        | (optional) Event-specific metadata (e.g., schema version). |
+| `metadata`  | `Map<string, unknown>` or `null` | (optional) Event-specific metadata (e.g., schema version). |
 | `platform`  | `Platform` or `null`             | Platform information (auto-detected by runtime).           |
-
-#### EventMetadata
-
-| Field            | Type     | Description                  |
-| :--------------- | :------- | :--------------------------- |
-| `schemaVersion?` | `string` | Schema version for the event |
 
 #### Platform (Discriminated Union)
 
@@ -119,13 +112,13 @@ The structure must be JSON-serializable.
 
 ## IV. Public API Contract
 
-| Method             | Signature                                                                          | Description/Behavior                                                                                                                        |
-| :----------------- | :--------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------ |
-| **`init()`**       | `() -> void` (or `Future/Promise`)                                                 | Restores persisted events and starts scheduled flush. **Must be called before `track()`**.                                                  |
-| **`track()`**      | `(name: string, payload?: Map<string, unknown>, metadata?: EventMetadata) -> void` | Creates an enriched `Event` and enqueues it. Triggers **auto-flush** if `maxBatchSize` is reached. **Throws error if `init()` not called**. |
-| **`setContext()`** | `(key: string, value: unknown) -> void`                                            | Stores context for all subsequent events.                                                                                                   |
-| **`flush()`**      | `() -> void` (or `Future/Promise`)                                                 | **Manually sends all queued events immediately**. **Mutex-protected**.                                                                      |
-| **`dispose()`**    | `() -> void`                                                                       | **Cleans up resources** (cancels timers, detaches listeners). Call `flush()` first if pending events must be sent.                          |
+| Method              | Signature                                                                                 | Description/Behavior                                                                                                                        |
+| :------------------ | :---------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------ |
+| **`init()`**        | `() -> void` (or `Future/Promise`)                                                        | Restores persisted events and starts scheduled flush. **Must be called before `track()`**.                                                  |
+| **`track()`**       | `(name: string, payload?: Map<string, unknown>, metadata?: Map<string, unknown>) -> void` | Creates an enriched `Event` and enqueues it. Triggers **auto-flush** if `maxBatchSize` is reached. **Throws error if `init()` not called**. |
+| **`setMetadata()`** | `(key: string, value: unknown) -> void`                                                   | Stores metadata for all subsequent events.                                                                                                  |
+| **`flush()`**       | `() -> void` (or `Future/Promise`)                                                        | **Manually sends all queued events immediately**. **Mutex-protected**.                                                                      |
+| **`dispose()`**     | `() -> void`                                                                              | **Cleans up resources** (cancels timers, detaches listeners). Call `flush()` first if pending events must be sent.                          |
 
 ---
 
@@ -175,8 +168,9 @@ Where $\text{baseDelay}$ is $1000\text{ms}$ and $\text{jitter}$ is random
 
 ### A. Performance
 
-- **Time Complexity**: `enqueue()`, `dequeue()`, `setContext()`, `getContext()`
-  are **O(1)**. `flush()` is **O(n)**, where $n$ is the batch size.
+- **Time Complexity**: `enqueue()`, `dequeue()`, `setMetadata()`,
+  `getMetadata()` are **O(1)**. `flush()` is **O(n)**, where $n$ is the batch
+  size.
 - **Space Complexity**: Queue is **O(n)** (number of queued events).
 
 ### B. Testing and Standards
