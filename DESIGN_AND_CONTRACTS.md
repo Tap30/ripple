@@ -44,12 +44,61 @@ All custom functionality is abstracted via interfaces:
 - **`StorageAdapter`**: Handles event persistence on failure or initialization.
   Methods (`save()`, `load()`, `clear()`) must be **idempotent** and handle
   errors gracefully.
+- **`LoggerAdapter`**: Handles SDK internal logging with configurable log levels
+  (`DEBUG`, `INFO`, `WARN`, `ERROR`, `NONE`). Built-in implementations include
+  `ConsoleLoggerAdapter` and `NoOpLoggerAdapter`.
 - **`SessionManager`** (Runtime-Specific): Generates and persists the unique
   session ID (`{timestamp}-{random}`).
 
 ---
 
-## III. Data Structures (Contracts)
+## III. Type Safety and Generic Constraints
+
+### Generic Type Parameters
+
+The SDK provides compile-time type safety through generic parameters:
+
+| Generic     | Constraint                     | Description                                                                         |
+| :---------- | :----------------------------- | :---------------------------------------------------------------------------------- |
+| `TEvents`   | `Record<string, EventPayload>` | **Optional:** Maps event names to their payload types for type-safe event tracking. |
+| `TMetadata` | `Record<string, unknown>`      | **Optional:** Defines the structure of metadata attached to events.                 |
+
+#### Usage Examples
+
+```typescript
+// Define event types mapping
+type AppEvents = {
+  "user.login": { email: string; method: "google" | "email" };
+  "page.view": { url: string; title: string; duration?: number };
+  "purchase.completed": { orderId: string; amount: number; currency: string };
+};
+
+// Define metadata structure
+type AppMetadata = {
+  userId: string;
+  sessionId: string;
+  schemaVersion: string;
+};
+
+// Type-safe client instantiation
+const client = new RippleClient<AppEvents, AppMetadata>(config);
+
+// Type-safe event tracking (compile-time validation)
+await client.track("user.login", {
+  email: "user@example.com",
+  method: "google",
+});
+```
+
+### Backward Compatibility
+
+- **Single Generic**: `RippleClient<TMetadata>` (metadata-only typing)
+- **No Generics**: `RippleClient` (no compile-time type checking)
+- **Both Generics**: `RippleClient<TEvents, TMetadata>` (full type safety)
+
+---
+
+## IV. Data Structures (Contracts)
 
 ### 1. `Config` (Initialization)
 
@@ -61,14 +110,15 @@ All custom functionality is abstracted via interfaces:
 | `flushInterval?` | `number` | **Optional:** Auto-flush interval in ms. **(Default: 5000)**.    |
 | `maxBatchSize?`  | `number` | **Optional:** Max events per batch. **(Default: 10)**.           |
 | `maxRetries?`    | `number` | **Optional:** Max retry attempts. **(Default: 3)**.              |
-| `adapters?`      | `object` | **Optional:** Custom HTTP and storage adapters.                  |
+| `adapters`       | `object` | **Required:** Custom HTTP and storage adapters.                  |
 
 #### Adapters Configuration
 
-| Field             | Type             | Constraint/Default                                    |
-| :---------------- | :--------------- | :---------------------------------------------------- |
-| `httpAdapter?`    | `HttpAdapter`    | **Optional:** Custom HTTP adapter for API requests.   |
-| `storageAdapter?` | `StorageAdapter` | **Optional:** Custom storage adapter for persistence. |
+| Field            | Type             | Constraint/Default                                                                                                |
+| :--------------- | :--------------- | :---------------------------------------------------------------------------------------------------------------- |
+| `httpAdapter`    | `HttpAdapter`    | **Required:** Custom HTTP adapter for API requests.                                                               |
+| `storageAdapter` | `StorageAdapter` | **Required:** Custom storage adapter for persistence.                                                             |
+| `loggerAdapter?` | `LoggerAdapter`  | **Optional:** Custom logger adapter for SDK internal logging. **(Default: ConsoleLoggerAdapter with WARN level)** |
 
 ### 2. `Event` (API Payload)
 
@@ -110,19 +160,19 @@ The structure must be JSON-serializable.
 
 ---
 
-## IV. Public API Contract
+## V. Public API Contract
 
-| Method              | Signature                                                                                 | Description/Behavior                                                                                                                        |
-| :------------------ | :---------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------ |
-| **`init()`**        | `() -> void` (or `Future/Promise`)                                                        | Restores persisted events and starts scheduled flush. **Must be called before `track()`**.                                                  |
-| **`track()`**       | `(name: string, payload?: Map<string, unknown>, metadata?: Map<string, unknown>) -> void` | Creates an enriched `Event` and enqueues it. Triggers **auto-flush** if `maxBatchSize` is reached. **Throws error if `init()` not called**. |
-| **`setMetadata()`** | `(key: string, value: unknown) -> void`                                                   | Stores metadata for all subsequent events.                                                                                                  |
-| **`flush()`**       | `() -> void` (or `Future/Promise`)                                                        | **Manually sends all queued events immediately**. **Mutex-protected**.                                                                      |
-| **`dispose()`**     | `() -> void`                                                                              | **Cleans up resources** (cancels timers, detaches listeners). Call `flush()` first if pending events must be sent.                          |
+| Method              | Signature                                                                                         | Description/Behavior                                                                                                                                                                |
+| :------------------ | :------------------------------------------------------------------------------------------------ | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`init()`**        | `() -> void` (or `Future/Promise`)                                                                | Restores persisted events and starts scheduled flush. **Must be called before `track()`**.                                                                                          |
+| **`track()`**       | `<K extends keyof TEvents>(name: K, payload?: TEvents[K], metadata?: Partial<TMetadata>) -> void` | Creates an enriched `Event` and enqueues it. **Type-safe** event names and payloads. Triggers **auto-flush** if `maxBatchSize` is reached. **Throws error if `init()` not called**. |
+| **`setMetadata()`** | `<K extends keyof TMetadata>(key: K, value: TMetadata[K]) -> void`                                | Stores **type-safe** metadata for all subsequent events.                                                                                                                            |
+| **`flush()`**       | `() -> void` (or `Future/Promise`)                                                                | **Manually sends all queued events immediately**. **Mutex-protected**.                                                                                                              |
+| **`dispose()`**     | `() -> void`                                                                                      | **Cleans up resources** (cancels timers, detaches listeners). Call `flush()` first if pending events must be sent.                                                                  |
 
 ---
 
-## V. Behavioral Guarantees
+## VI. Behavioral Guarantees
 
 ### A. Flush Guarantees
 
@@ -161,10 +211,14 @@ Where $\text{baseDelay}$ is $1000\text{ms}$ and $\text{jitter}$ is random
 - Calling `track()` before initialization throws an error.
 - Platform information is automatically detected during event creation.
 - Metadata and payload are optional for all events.
+- **Logger adapter** defaults to `ConsoleLoggerAdapter` with `WARN` level if not
+  provided.
+- **Type safety** is enforced at compile-time when using generic type
+  parameters.
 
 ---
 
-## VI. Quality and Implementation Checklist
+## VII. Quality and Implementation Checklist
 
 ### A. Performance
 
@@ -201,3 +255,7 @@ Where $\text{baseDelay}$ is $1000\text{ms}$ and $\text{jitter}$ is random
    state awareness.
 10. **Event Deduplication**: Optional duplicate event detection based on
     configurable keys.
+11. **Advanced Logger Features**: Structured logging, log rotation, and remote
+    log shipping capabilities.
+12. **Runtime Type Validation**: Optional runtime validation of event payloads
+    against TypeScript types using libraries like Zod or Joi.
