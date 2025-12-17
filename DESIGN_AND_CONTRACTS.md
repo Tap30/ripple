@@ -162,13 +162,15 @@ The structure must be JSON-serializable.
 
 ## V. Public API Contract
 
-| Method              | Signature                                                                                         | Description/Behavior                                                                                                                                                                |
-| :------------------ | :------------------------------------------------------------------------------------------------ | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **`init()`**        | `() -> void` (or `Future/Promise`)                                                                | Restores persisted events and starts scheduled flush. **Must be called before `track()`**.                                                                                          |
-| **`track()`**       | `<K extends keyof TEvents>(name: K, payload?: TEvents[K], metadata?: Partial<TMetadata>) -> void` | Creates an enriched `Event` and enqueues it. **Type-safe** event names and payloads. Triggers **auto-flush** if `maxBatchSize` is reached. **Throws error if `init()` not called**. |
-| **`setMetadata()`** | `<K extends keyof TMetadata>(key: K, value: TMetadata[K]) -> void`                                | Stores **type-safe** metadata for all subsequent events.                                                                                                                            |
-| **`flush()`**       | `() -> void` (or `Future/Promise`)                                                                | **Manually sends all queued events immediately**. **Mutex-protected**.                                                                                                              |
-| **`dispose()`**     | `() -> void`                                                                                      | **Cleans up resources** (cancels timers, detaches listeners). Call `flush()` first if pending events must be sent.                                                                  |
+| Method               | Signature                                                                                         | Description/Behavior                                                                                                                                                                |
+| :------------------- | :------------------------------------------------------------------------------------------------ | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`init()`**         | `() -> void` (or `Future/Promise`)                                                                | Restores persisted events and starts scheduled flush. **Must be called before `track()`**.                                                                                          |
+| **`track()`**        | `<K extends keyof TEvents>(name: K, payload?: TEvents[K], metadata?: Partial<TMetadata>) -> void` | Creates an enriched `Event` and enqueues it. **Type-safe** event names and payloads. Triggers **auto-flush** if `maxBatchSize` is reached. **Throws error if `init()` not called**. |
+| **`setMetadata()`**  | `<K extends keyof TMetadata>(key: K, value: TMetadata[K]) -> void`                                | Stores **type-safe** metadata for all subsequent events.                                                                                                                            |
+| **`getMetadata()`**  | `() -> Partial<TMetadata>`                                                                        | **Returns all stored metadata** as a shallow copy. Returns empty object if no metadata is set.                                                                                      |
+| **`getSessionId()`** | `() -> string \| null`                                                                            | **Returns current session ID** or `null` if not set. Session ID is auto-generated in browser environments.                                                                          |
+| **`flush()`**        | `() -> void` (or `Future/Promise`)                                                                | **Manually sends all queued events immediately**. **Mutex-protected**.                                                                                                              |
+| **`dispose()`**      | `() -> void`                                                                                      | **Cleans up resources and frees memory** (cancels timers, clears queues, releases locks, resets state). **Supports re-initialization** after disposal.                              |
 
 ---
 
@@ -205,7 +207,7 @@ Where $\text{baseDelay}$ is $1000\text{ms}$ and $\text{jitter}$ is random
 - Re-queueing failed events maintains order:
   `[...failedEvents, ...currentQueue]`.
 
-### D. Initialization
+### D. Initialization and Lifecycle
 
 - **`init()` must be called before `track()`** to prevent data loss.
 - Calling `track()` before initialization throws an error.
@@ -215,6 +217,10 @@ Where $\text{baseDelay}$ is $1000\text{ms}$ and $\text{jitter}$ is random
   provided.
 - **Type safety** is enforced at compile-time when using generic type
   parameters.
+- **`dispose()` provides complete memory cleanup**: clears event queues, cancels
+  scheduled flushes, releases mutex locks, and resets all internal state.
+- **Re-initialization after disposal**: After calling `dispose()`, you can call
+  `init()` again to restart the client with a clean state.
 
 ---
 
