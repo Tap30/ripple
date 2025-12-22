@@ -58,43 +58,32 @@ All custom functionality is abstracted via interfaces:
 
 The SDK provides compile-time type safety through generic parameters:
 
-| Generic     | Constraint                     | Description                                                                         |
-| :---------- | :----------------------------- | :---------------------------------------------------------------------------------- |
-| `TEvents`   | `Record<string, EventPayload>` | **Optional:** Maps event names to their payload types for type-safe event tracking. |
-| `TMetadata` | `Record<string, unknown>`      | **Optional:** Defines the structure of metadata attached to events.                 |
+| Generic     | Constraint                | Description                                                                         |
+| :---------- | :------------------------ | :---------------------------------------------------------------------------------- |
+| `TEvents`   | `Record<string, unknown>` | **Optional:** Maps event names to their payload types for type-safe event tracking. |
+| `TMetadata` | `Record<string, unknown>` | **Optional:** Defines the structure of metadata attached to events.                 |
 
 #### Usage Examples
 
-```typescript
-// Define event types mapping
-type AppEvents = {
-  "user.login": { email: string; method: "google" | "email" };
-  "page.view": { url: string; title: string; duration?: number };
-  "purchase.completed": { orderId: string; amount: number; currency: string };
-};
+typescript // Define event types mapping type AppEvents = { "user.login": {
+email: string; method: "google" | "email" }; "page.view": { url: string; title:
+string; duration?: number }; "purchase.completed": { orderId: string; amount:
+number; currency: string }; };
 
-// Define metadata structure
-type AppMetadata = {
-  userId: string;
-  sessionId: string;
-  schemaVersion: string;
-};
+// Define metadata structure type AppMetadata = { userId: string; sessionId:
+string; schemaVersion: string; };
 
-// Type-safe client instantiation
-const client = new RippleClient<AppEvents, AppMetadata>(config);
+// Type-safe client instantiation const client = new RippleClient<AppEvents,
+AppMetadata>(config);
 
-// Type-safe event tracking (compile-time validation)
-await client.track("user.login", {
-  email: "user@example.com",
-  method: "google",
-});
-```
+// Type-safe event tracking (compile-time validation) await
+client.track("user.login", { email: "<user@example.com>", method: "google", });
 
 ### Backward Compatibility
 
-- **Single Generic**: `RippleClient<TMetadata>` (metadata-only typing)
+- **Single Generic**: `RippleClient<AppMetadata>` (metadata-only typing)
 - **No Generics**: `RippleClient` (no compile-time type checking)
-- **Both Generics**: `RippleClient<TEvents, TMetadata>` (full type safety)
+- **Both Generics**: `RippleClient<AppEvents, AppMetadata>` (full type safety)
 
 ---
 
@@ -102,20 +91,14 @@ await client.track("user.login", {
 
 ### 1. `Config` (Initialization)
 
-| Field            | Type     | Constraint/Default                                               |
-| :--------------- | :------- | :--------------------------------------------------------------- |
-| `apiKey`         | `string` | **Required:** API authentication key.                            |
-| `endpoint`       | `string` | **Required:** Valid HTTPS URL.                                   |
-| `apiKeyHeader?`  | `string` | **Optional:** Header name for API key **(Default: "X-API-Key")** |
-| `flushInterval?` | `number` | **Optional:** Auto-flush interval in ms. **(Default: 5000)**.    |
-| `maxBatchSize?`  | `number` | **Optional:** Max events per batch. **(Default: 10)**.           |
-| `maxRetries?`    | `number` | **Optional:** Max retry attempts. **(Default: 3)**.              |
-| `adapters`       | `object` | **Required:** Custom HTTP and storage adapters.                  |
-
-#### Adapters Configuration
-
 | Field            | Type             | Constraint/Default                                                                                                |
 | :--------------- | :--------------- | :---------------------------------------------------------------------------------------------------------------- |
+| `apiKey`         | `string`         | **Required:** API authentication key.                                                                             |
+| `endpoint`       | `string`         | **Required:** Valid HTTPS URL.                                                                                    |
+| `apiKeyHeader?`  | `string`         | **Optional:** Header name for API key **(Default: "X-API-Key")**                                                  |
+| `flushInterval?` | `number`         | **Optional:** Auto-flush interval in ms. **(Default: 5000)**.                                                     |
+| `maxBatchSize?`  | `number`         | **Optional:** Max events per batch. **(Default: 10)**.                                                            |
+| `maxRetries?`    | `number`         | **Optional:** Max retry attempts. **(Default: 3)**.                                                               |
 | `httpAdapter`    | `HttpAdapter`    | **Required:** Custom HTTP adapter for API requests.                                                               |
 | `storageAdapter` | `StorageAdapter` | **Required:** Custom storage adapter for persistence.                                                             |
 | `loggerAdapter?` | `LoggerAdapter`  | **Optional:** Custom logger adapter for SDK internal logging. **(Default: ConsoleLoggerAdapter with WARN level)** |
@@ -188,15 +171,16 @@ Flush is triggered by auto-flush, scheduled flush, or manual call.
 
 Retries are implemented with **exponential backoff and jitter**.
 
-| Status Code / Error         | Retry Decision         | Behavior After Max Retries   |
-| :-------------------------- | :--------------------- | :--------------------------- |
-| **2xx**                     | **No Retry** (Success) | Clear storage.               |
-| **4xx** (Client Error)      | **No Retry**           | Re-queue and persist events. |
-| **5xx** (Server Error)      | **Retry**              | Re-queue and persist events. |
-| **Network Error** (Timeout) | **Retry**              | Re-queue and persist events. |
+| Status Code / Error         | Retry Decision | Behavior After Max Retries   |
+| :-------------------------- | :------------- | :--------------------------- |
+| **2xx** (Success)           | **No Retry**   | Clear storage.               |
+| **4xx** (Client Error)      | **No Retry**   | Re-queue and persist events. |
+| **5xx** (Server Error)      | **Retry**      | Re-queue and persist events. |
+| **Network Error** (Timeout) | **Retry**      | Re-queue and persist events. |
 
 The backoff delay calculation is:
 $$\text{delay} = (\text{baseDelay} \cdot 2^{\text{attempt}}) + \text{jitter}$$
+
 Where $\text{baseDelay}$ is $1000\text{ms}$ and $\text{jitter}$ is random
 ($0-1000\text{ms}$).
 
