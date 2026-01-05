@@ -1,6 +1,6 @@
 <div align="center">
 
-<img width="64" height="64" alt="Ripple Logo" src="https://raw.githubusercontent.com/Tap30/ripple-ts/refs/heads/main/ripple-logo.png" />
+<img width="64" height="64" alt="Ripple Logo" src="https://raw.githubusercontent.com/Tap30/ripple/refs/heads/main/ripple-logo.png" />
 
 # Ripple
 
