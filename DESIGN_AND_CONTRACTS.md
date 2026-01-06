@@ -65,19 +65,41 @@ The SDK provides compile-time type safety through generic parameters:
 
 #### Usage Examples
 
-typescript // Define event types mapping type AppEvents = { "user.login": {
-email: string; method: "google" | "email" }; "page.view": { url: string; title:
-string; duration?: number }; "purchase.completed": { orderId: string; amount:
-number; currency: string }; };
+```ts
+// Define event types mapping
+type AppEvents = {
+  "user.login": {
+    email: string;
+    method: "google" | "email";
+  };
+  "page.view": {
+    url: string;
+    title: string;
+    duration?: number;
+  };
+  "purchase.completed": {
+    orderId: string;
+    amount: number;
+    currency: string;
+  };
+};
 
-// Define metadata structure type AppMetadata = { userId: string; sessionId:
-string; schemaVersion: string; };
+// Define metadata structure
+type AppMetadata = {
+  userId: string;
+  sessionId: string;
+  schemaVersion: string;
+};
 
-// Type-safe client instantiation const client = new RippleClient<AppEvents,
-AppMetadata>(config);
+// Type-safe client instantiation
+const client = new RippleClient<AppEvents, AppMetadata>(config);
 
-// Type-safe event tracking (compile-time validation) await
-client.track("user.login", { email: "<user@example.com>", method: "google", });
+// Type-safe event tracking (compile-time validation)
+await client.track("user.login", {
+  email: "<user@example.com>",
+  method: "google",
+});
+```
 
 ### Backward Compatibility
 
