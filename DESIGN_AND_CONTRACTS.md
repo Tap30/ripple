@@ -1,4 +1,4 @@
-# 🎯 Ripple SDK Architectural Specification
+# Ripple SDK Architectural Specification
 
 ## I. Overview and Core Principles
 
@@ -81,7 +81,8 @@ client.track("user.login", { email: "<user@example.com>", method: "google", });
 
 ### Backward Compatibility
 
-- **Single Generic**: `RippleClient<AppMetadata>` (metadata-only typing)
+- **Single Generic**: `RippleClient<Record<string, unknown>, AppMetadata>`
+  (metadata-only typing)
 - **No Generics**: `RippleClient` (no compile-time type checking)
 - **Both Generics**: `RippleClient<AppEvents, AppMetadata>` (full type safety)
 
@@ -107,14 +108,14 @@ client.track("user.login", { email: "<user@example.com>", method: "google", });
 
 The structure must be JSON-serializable.
 
-| Field       | Type                             | Description                                                |
-| :---------- | :------------------------------- | :--------------------------------------------------------- |
-| `name`      | `string`                         | Event identifier.                                          |
-| `payload`   | `Map<string, unknown>` or `null` | (optional) Event data.                                     |
-| `issuedAt`  | `number`                         | Unix timestamp in milliseconds.                            |
-| `sessionId` | `string` or `null`               | Session identifier (browser only).                         |
-| `metadata`  | `Map<string, unknown>` or `null` | (optional) Event-specific metadata (e.g., schema version). |
-| `platform`  | `Platform` or `null`             | Platform information (auto-detected by runtime).           |
+| Field       | Type                             | Description                                                 |
+| :---------- | :------------------------------- | :---------------------------------------------------------- |
+| `name`      | `string`                         | Event identifier.                                           |
+| `payload`   | `Map<string, unknown>` or `null` | Event data.                                                 |
+| `issuedAt`  | `number`                         | Unix timestamp in milliseconds.                             |
+| `sessionId` | `string` or `null`               | Session identifier (browser/native only).                   |
+| `metadata`  | `Map<string, unknown>` or `null` | Event/environment-specific metadata (e.g., schema version). |
+| `platform`  | `Platform` or `null`             | Platform information (auto-detected by runtime).            |
 
 #### Platform (Discriminated Union)
 
