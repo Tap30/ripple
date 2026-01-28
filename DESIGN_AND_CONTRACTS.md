@@ -256,20 +256,7 @@ Where $\text{baseDelay}$ is $1000\text{ms}$ and $\text{jitter}$ is random
    eviction policies (FIFO, LRU).
 3. **Batch Compression**: Add optional Gzip compression for large event batches.
 4. **Event Sampling**: Configurable sampling rates for high-volume scenarios.
-
-### C. Future Improvements
-
-1. **Middleware System**: Introduce hooks for event transformation, filtering,
-   and enrichment.
-2. **Offline Queue Limits**: Implement maximum queue size with configurable
-   eviction policies (FIFO, LRU).
-3. **Batch Compression**: Add optional Gzip compression for large event batches.
-4. **Event Sampling**: Configurable sampling rates for high-volume scenarios.
-5. **Dynamic Rebatching**: When retrying after 5xx/network errors causes queue
-   growth (especially in offline scenarios), automatically rebatch accumulated
-   events using the configured `maxBatchSize` before sending to optimize
-   throughput and prevent oversized payloads.
-6. **429 Rate Limit Handling**: Treat HTTP 429 (Too Many Requests) as a
+5. **429 Rate Limit Handling**: Treat HTTP 429 (Too Many Requests) as a
    retryable error instead of a client error. Implement retry with exponential
    backoff, respect `Retry-After` header when present, and re-queue events if
    max retries exceeded to prevent data loss during rate limiting.
