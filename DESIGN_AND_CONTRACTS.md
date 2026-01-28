@@ -197,7 +197,7 @@ Retries are implemented with **exponential backoff and jitter**.
 | Status Code / Error         | Retry Decision | Behavior After Max Retries   |
 | :-------------------------- | :------------- | :--------------------------- |
 | **2xx** (Success)           | **No Retry**   | Clear storage.               |
-| **4xx** (Client Error)      | **No Retry**   | Re-queue and persist events. |
+| **4xx** (Client Error)      | **No Retry**   | Drop events, clear storage.  |
 | **5xx** (Server Error)      | **Retry**      | Re-queue and persist events. |
 | **Network Error** (Timeout) | **Retry**      | Re-queue and persist events. |
 
