@@ -17,6 +17,8 @@ A high-performance, scalable, and fault tolerant event tracking SDKs.
 ## Official Ripple SDKs
 
 - [TypeScript (browser, node)](https://github.com/Tap30/ripple-ts)
+- [Go](https://github.com/Tap30/ripple-go)
+- [Kotlin (android, kotlin, java)](https://github.com/Tap30/ripple-kotlin)
 
 ## License
 
