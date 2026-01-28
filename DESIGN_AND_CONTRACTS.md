@@ -269,3 +269,7 @@ Where $\text{baseDelay}$ is $1000\text{ms}$ and $\text{jitter}$ is random
    growth (especially in offline scenarios), automatically rebatch accumulated
    events using the configured `maxBatchSize` before sending to optimize
    throughput and prevent oversized payloads.
+6. **429 Rate Limit Handling**: Treat HTTP 429 (Too Many Requests) as a
+   retryable error instead of a client error. Implement retry with exponential
+   backoff, respect `Retry-After` header when present, and re-queue events if
+   max retries exceeded to prevent data loss during rate limiting.
