@@ -250,25 +250,9 @@ Where $\text{baseDelay}$ is $1000\text{ms}$ and $\text{jitter}$ is random
 
 ### C. Future Improvements
 
-1. **Event Validation**: Add optional schema validation for event payloads and
-   metadata.
-2. **Middleware System**: Introduce hooks for event transformation, filtering,
+1. **Middleware System**: Introduce hooks for event transformation, filtering,
    and enrichment.
-3. **Offline Queue Limits**: Implement maximum queue size with configurable
+2. **Offline Queue Limits**: Implement maximum queue size with configurable
    eviction policies (FIFO, LRU).
-4. **Batch Compression**: Add optional Gzip compression for large event batches.
-5. **Enhanced Error Handling**: Provide detailed error categorization and custom
-   error handlers.
-6. **Performance Monitoring**: Built-in metrics for queue size, flush frequency,
-   and retry rates.
-7. **Event Sampling**: Configurable sampling rates for high-volume scenarios.
-8. **Custom Serialization**: Support for custom event serialization formats
-   (MessagePack, Avro).
-9. **Background Sync**: Intelligent background synchronization with network
-   state awareness.
-10. **Event Deduplication**: Optional duplicate event detection based on
-    configurable keys.
-11. **Advanced Logger Features**: Structured logging, log rotation, and remote
-    log shipping capabilities.
-12. **Runtime Type Validation**: Optional runtime validation of event payloads
-    against TypeScript types using libraries like Zod or Joi.
+3. **Batch Compression**: Add optional Gzip compression for large event batches.
+4. **Event Sampling**: Configurable sampling rates for high-volume scenarios.
