@@ -160,7 +160,6 @@ The structure must be JSON-serializable.
 
 | Field    | Type      | Description                    |
 | :------- | :-------- | :----------------------------- |
-| `ok`     | `boolean` | `true` for `2xx` status codes. |
 | `status` | `number`  | HTTP status code.              |
 | `data?`  | `unknown` | Optional response body.        |
 
