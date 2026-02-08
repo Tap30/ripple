@@ -252,11 +252,9 @@ Where $\text{baseDelay}$ is $1000\text{ms}$ and $\text{jitter}$ is random
 
 1. **Middleware System**: Introduce hooks for event transformation, filtering,
    and enrichment.
-2. **Offline Queue Limits**: Implement maximum queue size with configurable
-   eviction policies (FIFO, LRU).
-3. **Batch Compression**: Add optional Gzip compression for large event batches.
-4. **Event Sampling**: Configurable sampling rates for high-volume scenarios.
-5. **429 Rate Limit Handling**: Treat HTTP 429 (Too Many Requests) as a
+2. **Batch Compression**: Add optional Gzip compression for large event batches.
+3. **Event Sampling**: Configurable sampling rates for high-volume scenarios.
+4. **429 Rate Limit Handling**: Treat HTTP 429 (Too Many Requests) as a
    retryable error instead of a client error. Implement retry with exponential
    backoff, respect `Retry-After` header when present, and re-queue events if
    max retries exceeded to prevent data loss during rate limiting.
