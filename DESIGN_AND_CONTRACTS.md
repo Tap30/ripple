@@ -257,6 +257,6 @@ Where $\text{baseDelay}$ is $1000\text{ms}$ and $\text{jitter}$ is random
    retryable error instead of a client error. Implement retry with exponential
    backoff, respect `Retry-After` header when present, and re-queue events if
    max retries exceeded to prevent data loss during rate limiting.
-5. **Byte-based persisted queue limit** — The current limit is event-count
+5. **Byte-based persisted queue limit**: The current limit is event-count
    based, but storage quotas are byte-based. A byte-size limit option would more
    accurately prevent `QuotaExceededError`.
