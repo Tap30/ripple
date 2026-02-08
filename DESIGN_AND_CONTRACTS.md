@@ -158,10 +158,10 @@ The structure must be JSON-serializable.
 
 ### 3. `HttpResponse` (Adapter Output)
 
-| Field    | Type      | Description                    |
-| :------- | :-------- | :----------------------------- |
-| `status` | `number`  | HTTP status code.              |
-| `data?`  | `unknown` | Optional response body.        |
+| Field    | Type      | Description             |
+| :------- | :-------- | :---------------------- |
+| `status` | `number`  | HTTP status code.       |
+| `data?`  | `unknown` | Optional response body. |
 
 ---
 
@@ -257,3 +257,6 @@ Where $\text{baseDelay}$ is $1000\text{ms}$ and $\text{jitter}$ is random
    retryable error instead of a client error. Implement retry with exponential
    backoff, respect `Retry-After` header when present, and re-queue events if
    max retries exceeded to prevent data loss during rate limiting.
+5. **Byte-based persisted queue limit** — The current limit is event-count
+   based, but storage quotas are byte-based. A byte-size limit option would more
+   accurately prevent `QuotaExceededError`.
