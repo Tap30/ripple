@@ -171,7 +171,7 @@ The structure must be JSON-serializable.
 
 | Method               | Signature                                                                                         | Description/Behavior                                                                                                                                                                |
 | :------------------- | :------------------------------------------------------------------------------------------------ | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **`init()`**         | `() -> void` (or `Future/Promise`)                                                                | Restores persisted events and starts scheduled flush. **Must be called before `track()`**.                                                                                          |
+| **`init()`**         | `() -> void` (or `Future/Promise`)                                                                | Restores persisted events (applying `maxBufferSize` limit) and starts scheduled flush. **Must be called before `track()`**.                                                         |
 | **`track()`**        | `<K extends keyof TEvents>(name: K, payload?: TEvents[K], metadata?: Partial<TMetadata>) -> void` | Creates an enriched `Event` and enqueues it. **Type-safe** event names and payloads. Triggers **auto-flush** if `maxBatchSize` is reached. **Throws error if `init()` not called**. |
 | **`setMetadata()`**  | `<K extends keyof TMetadata>(key: K, value: TMetadata[K]) -> void`                                | Stores **type-safe** metadata for all subsequent events.                                                                                                                            |
 | **`getMetadata()`**  | `() -> Partial<TMetadata>`                                                                        | **Returns all stored metadata** as a shallow copy. Returns empty object if no metadata is set.                                                                                      |
@@ -239,6 +239,9 @@ Where $\text{baseDelay}$ is $1000\text{ms}$ and $\text{jitter}$ is random
 **Critical Rule**: `maxBufferSize` should always be **greater than or equal to**
 `maxBatchSize`.
 
+**Runtime Validation**: The SDK warns at initialization when
+`maxBufferSize < maxBatchSize` to help catch misconfigurations early.
+
 | Configuration                                | Behavior                                                                                  | Recommendation  |
 | :------------------------------------------- | :---------------------------------------------------------------------------------------- | :-------------- |
 | `maxBatchSize: 10, maxBufferSize: 100`       | ✅ Events flush every 10, buffer can hold 100 during offline periods                      | **Recommended** |
@@ -257,7 +260,7 @@ Where $\text{baseDelay}$ is $1000\text{ms}$ and $\text{jitter}$ is random
 - **`maxBufferSize`**: Controls **how many** events are kept in memory/storage
   - Prevents unbounded memory growth
   - Drops oldest events (FIFO) when exceeded
-  - Applied before saving to storage
+  - Applied before saving to storage AND when restoring from storage
   - Larger values = better offline resilience
 
 **Scenarios**:
@@ -319,25 +322,26 @@ Storage adapters should automatically handle quota exceeded errors:
 ### A. Component Interaction Diagram
 
 ```mermaid
+%%{init: {'theme':'base', 'themeVariables': { 'fontSize':'16px'}}}%%
 graph TB
-    subgraph "Client Layer"
+    subgraph CL[Client Layer]
         Client[Client<br/>Facade Pattern]
     end
 
-    subgraph "Core Components"
+    subgraph CC[Core Components]
         MM[MetadataManager<br/>Repository Pattern]
         Dispatcher[Dispatcher<br/>Command Queue Pattern]
         Mutex[Mutex<br/>Mutual Exclusion]
     end
 
-    subgraph "Adapters (Dependency Injection)"
+    subgraph AD[Adapters - Dependency Injection]
         HTTP[HttpAdapter<br/>Interface]
         Storage[StorageAdapter<br/>Interface]
         Logger[LoggerAdapter<br/>Interface]
         Session[SessionManager<br/>Runtime-Specific]
     end
 
-    subgraph "Data Structures"
+    subgraph DS[Data Structures]
         Queue[Event Queue<br/>FIFO]
         Meta[Metadata Store<br/>Key-Value]
     end
@@ -361,15 +365,23 @@ graph TB
     Storage -.->|Events| Dispatcher
     Storage -.->|QuotaError| Dispatcher
 
-    style Client fill:#e1f5ff
-    style Dispatcher fill:#fff4e1
-    style MM fill:#f0e1ff
-    style Mutex fill:#ffe1e1
+    classDef clientStyle fill:#ffffff,stroke:#000,stroke-width:3px,color:#000
+    classDef coreStyle fill:#f5f5f5,stroke:#000,stroke-width:3px,color:#000
+    classDef adapterStyle fill:#e8e8e8,stroke:#000,stroke-width:2px,color:#000
+    classDef dataStyle fill:#ffffff,stroke:#000,stroke-width:2px,color:#000
+    classDef groupStyle fill:#ffffff,stroke:#000,stroke-width:2px,color:#000
+
+    class Client clientStyle
+    class MM,Dispatcher,Mutex coreStyle
+    class HTTP,Storage,Logger,Session adapterStyle
+    class Queue,Meta dataStyle
+    class CL,CC,AD,DS groupStyle
 ```
 
 ### B. Event Flow Sequence
 
 ```mermaid
+%%{init: {'theme':'base', 'themeVariables': { 'fontSize':'14px'}}}%%
 sequenceDiagram
     participant App as Application
     participant Client as Client
@@ -379,27 +391,41 @@ sequenceDiagram
     participant Storage as StorageAdapter
     participant HTTP as HttpAdapter
 
+    rect rgb(255, 255, 255)
+    Note over App,HTTP: Initialization Phase
     App->>Client: init()
     Client->>Storage: load()
     Storage-->>Client: persisted events
     Client->>Disp: restore events
     Disp->>Queue: enqueue(events)
+    end
 
+    rect rgb(255, 255, 255)
+    Note over App,Queue: Event Tracking Phase
     App->>Client: track(name, payload)
     Client->>MM: getMetadata()
     MM-->>Client: metadata
     Client->>Disp: enqueue(event)
     Disp->>Queue: add event
+    end
 
+    rect rgb(255, 255, 255)
+    Note over Disp: Flush Trigger
     alt maxBatchSize reached
         Disp->>Disp: flush()
     else flushInterval elapsed
         Disp->>Disp: flush()
     end
+    end
 
+    rect rgb(255, 255, 255)
+    Note over Disp,HTTP: Send Phase
     Disp->>Queue: dequeue(maxBatchSize)
     Disp->>HTTP: send(events)
+    end
 
+    rect rgb(255, 255, 255)
+    Note over HTTP,Storage: Response Handling
     alt Success (2xx)
         HTTP-->>Disp: 200 OK
         Disp->>Storage: clear()
@@ -412,15 +438,20 @@ sequenceDiagram
         Storage-->>Disp: QuotaError
         Disp->>Logger: warn(message)
     end
+    end
 
+    rect rgb(255, 255, 255)
+    Note over App,Queue: Cleanup Phase
     App->>Client: dispose()
     Client->>Disp: cleanup()
     Disp->>Queue: clear()
+    end
 ```
 
 ### C. Concurrency Control Flow
 
 ```mermaid
+%%{init: {'theme':'base', 'themeVariables': { 'background':'#ffffff','mainBkg':'#ffffff','primaryColor':'#f5f5f5','primaryTextColor':'#000','primaryBorderColor':'#333','lineColor':'#666','secondaryColor':'#e0e0e0','tertiaryColor':'#d0d0d0','noteBkgColor':'#f0f0f0','noteBorderColor':'#666','noteTextColor':'#000'}}}%%
 stateDiagram-v2
     [*] --> Idle
 
@@ -483,6 +514,3 @@ stateDiagram-v2
 5. **Byte-based Buffer Limit**: The current `maxBufferSize` is event-count
    based, but storage quotas are byte-based. A byte-size limit option would more
    accurately prevent `QuotaExceededError`.
-6. **Configuration Validation**: Add runtime validation to warn when
-   `maxBufferSize < maxBatchSize` (misconfiguration that prevents batch from
-   being reached).
