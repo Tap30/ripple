@@ -256,7 +256,12 @@ Where $\text{baseDelay}$ is $1000\text{ms}$ and $\text{jitter}$ is random
 4. **429 Rate Limit Handling**: Treat HTTP 429 (Too Many Requests) as a
    retryable error instead of a client error. Implement retry with exponential
    backoff, respect `Retry-After` header when present, and re-queue events if
-   max retries exceeded to prevent data loss during rate limiting.
-5. **Byte-based persisted queue limit**: The current limit is event-count
-   based, but storage quotas are byte-based. A byte-size limit option would more
+5. **Storage adapter error recovery** — If `save()` throws, the dispatcher
+   doesn't handle it gracefully.
+6. **Batch-aware persistence** — The dispatcher calls
+   `save(this._queue.toArray())` after every single `enqueue()`. For
+   high-throughput scenarios, this is expensive. max retries exceeded to prevent
+   data loss during rate limiting.
+7. **Byte-based persisted queue limit**: The current limit is event-count based,
+   but storage quotas are byte-based. A byte-size limit option would more
    accurately prevent `QuotaExceededError`.
