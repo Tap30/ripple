@@ -43,7 +43,8 @@ All custom functionality is abstracted via interfaces:
   `HttpResponse`.
 - **`StorageAdapter`**: Handles event persistence on failure or initialization.
   Methods (`save()`, `load()`, `clear()`) must be **idempotent** and handle
-  errors gracefully.
+  errors gracefully. **Throws `StorageQuotaExceededError`** when storage quota
+  is exceeded and events are dropped (after successfully saving reduced data).
 - **`LoggerAdapter`**: Handles SDK internal logging with configurable log levels
   (`DEBUG`, `INFO`, `WARN`, `ERROR`, `NONE`). Built-in implementations include
   `ConsoleLoggerAdapter` and `NoOpLoggerAdapter`.
@@ -120,7 +121,8 @@ await client.track("user.login", {
 | `endpoint`       | `string`         | **Required:** Valid HTTPS URL.                                                                                    |
 | `apiKeyHeader?`  | `string`         | **Optional:** Header name for API key **(Default: "X-API-Key")**                                                  |
 | `flushInterval?` | `number`         | **Optional:** Auto-flush interval in ms. **(Default: 5000)**.                                                     |
-| `maxBatchSize?`  | `number`         | **Optional:** Max events per batch. **(Default: 10)**.                                                            |
+| `maxBatchSize?`  | `number`         | **Optional:** Max events per batch. **(Default: 10)**. Triggers immediate flush when reached.                     |
+| `maxBufferSize?` | `number`         | **Optional:** Max events in memory/storage. **(Default: unlimited)**. Drops oldest events (FIFO) when exceeded.   |
 | `maxRetries?`    | `number`         | **Optional:** Max retry attempts. **(Default: 3)**.                                                               |
 | `httpAdapter`    | `HttpAdapter`    | **Required:** Custom HTTP adapter for API requests.                                                               |
 | `storageAdapter` | `StorageAdapter` | **Required:** Custom storage adapter for persistence.                                                             |
@@ -230,7 +232,229 @@ Where $\text{baseDelay}$ is $1000\text{ms}$ and $\text{jitter}$ is random
 
 ---
 
-## VII. Quality and Implementation Checklist
+## VIII. Configuration Best Practices
+
+### A. Buffer and Batch Size Relationship
+
+**Critical Rule**: `maxBufferSize` should always be **greater than or equal to**
+`maxBatchSize`.
+
+| Configuration                                | Behavior                                                                                  | Recommendation  |
+| :------------------------------------------- | :---------------------------------------------------------------------------------------- | :-------------- |
+| `maxBatchSize: 10, maxBufferSize: 100`       | ✅ Events flush every 10, buffer can hold 100 during offline periods                      | **Recommended** |
+| `maxBatchSize: 20, maxBufferSize: 1000`      | ✅ Large buffer for extended offline periods, efficient batching                          | **Recommended** |
+| `maxBatchSize: 100, maxBufferSize: 50`       | ❌ Batch size never reached, events dropped unnecessarily, only time-based flush triggers | **Avoid**       |
+| `maxBatchSize: 50, maxBufferSize: 50`        | ⚠️ Works but no room for accumulation during brief network issues                         | **Suboptimal**  |
+| `maxBatchSize: 10, maxBufferSize: undefined` | ✅ Unlimited buffer, events never dropped (may cause memory issues in extreme cases)      | **Default**     |
+
+**Understanding the Parameters**:
+
+- **`maxBatchSize`**: Controls **when** events are sent (triggers immediate
+  flush)
+  - Determines network request frequency
+  - Affects latency and throughput
+  - Smaller values = more frequent requests, lower latency
+- **`maxBufferSize`**: Controls **how many** events are kept in memory/storage
+  - Prevents unbounded memory growth
+  - Drops oldest events (FIFO) when exceeded
+  - Applied before saving to storage
+  - Larger values = better offline resilience
+
+**Scenarios**:
+
+1. **Normal Operation** (`maxBatchSize: 10, maxBufferSize: 100`):
+   - Events flush every 10 events
+   - Buffer rarely fills (events sent frequently)
+   - Optimal for real-time tracking
+
+2. **Offline Mode** (`maxBatchSize: 10, maxBufferSize: 100`):
+   - Buffer accumulates up to 100 events
+   - Oldest events dropped when limit exceeded
+   - Events sent when connection restored
+
+3. **Misconfigured** (`maxBatchSize: 100, maxBufferSize: 50`):
+   - Buffer hits 50 → drops to 50 → never reaches 100
+   - Batch size never triggers flush
+   - Events only sent via time-based flush (`flushInterval`)
+   - Data loss without warning
+
+### B. Storage Quota Handling
+
+Storage adapters should automatically handle quota exceeded errors:
+
+1. **Detection**: Catch platform-specific quota errors (e.g.,
+   `QuotaExceededError` in browsers, disk full errors in native/server)
+2. **Graceful Degradation**: Drop oldest 50% of events and retry save
+3. **Transparency**: Throw/return custom error with details about saved/dropped
+   counts
+4. **Logging**: Dispatcher logs warning with dropped event count
+
+**Implementation Guidelines**:
+
+- Set reasonable `maxBufferSize` to prevent quota issues
+- Use TTL to automatically expire old events
+- Monitor storage quota warnings in production
+- Choose storage mechanism appropriate for expected data volume
+
+### C. Storage Mechanism Selection Guidelines
+
+| Characteristic       | Small Volume (<100 events)      | Medium Volume (100-1000 events) | Large Volume (>1000 events) |
+| :------------------- | :------------------------------ | :------------------------------ | :-------------------------- |
+| **Browser**          | LocalStorage, Cookies           | LocalStorage, SessionStorage    | IndexedDB                   |
+| **Native (Mobile)**  | SharedPreferences, UserDefaults | SQLite, Realm                   | SQLite, Realm               |
+| **Server (Node.js)** | In-Memory, File System          | File System, SQLite             | Database, File System       |
+
+**Capacity Guidelines**:
+
+- **Cookies**: ~4KB (very limited, use only for minimal tracking)
+- **LocalStorage/SessionStorage**: ~5-10MB (browser-dependent)
+- **IndexedDB**: ~50MB+ (browser-dependent, can request more)
+- **Native Storage**: Device-dependent (typically 100MB+ available)
+- **File System**: Disk-dependent (typically unlimited for practical purposes)
+
+---
+
+## IX. High-Level Architecture
+
+### A. Component Interaction Diagram
+
+```mermaid
+graph TB
+    subgraph "Client Layer"
+        Client[Client<br/>Facade Pattern]
+    end
+
+    subgraph "Core Components"
+        MM[MetadataManager<br/>Repository Pattern]
+        Dispatcher[Dispatcher<br/>Command Queue Pattern]
+        Mutex[Mutex<br/>Mutual Exclusion]
+    end
+
+    subgraph "Adapters (Dependency Injection)"
+        HTTP[HttpAdapter<br/>Interface]
+        Storage[StorageAdapter<br/>Interface]
+        Logger[LoggerAdapter<br/>Interface]
+        Session[SessionManager<br/>Runtime-Specific]
+    end
+
+    subgraph "Data Structures"
+        Queue[Event Queue<br/>FIFO]
+        Meta[Metadata Store<br/>Key-Value]
+    end
+
+    Client -->|track| MM
+    Client -->|track| Dispatcher
+    Client -->|flush| Dispatcher
+    Client -->|setMetadata| MM
+
+    MM -->|store/retrieve| Meta
+
+    Dispatcher -->|enqueue/dequeue| Queue
+    Dispatcher -->|lock/unlock| Mutex
+    Dispatcher -->|send| HTTP
+    Dispatcher -->|save/load| Storage
+    Dispatcher -->|log| Logger
+
+    Client -->|getSessionId| Session
+
+    HTTP -.->|Response| Dispatcher
+    Storage -.->|Events| Dispatcher
+    Storage -.->|QuotaError| Dispatcher
+
+    style Client fill:#e1f5ff
+    style Dispatcher fill:#fff4e1
+    style MM fill:#f0e1ff
+    style Mutex fill:#ffe1e1
+```
+
+### B. Event Flow Sequence
+
+```mermaid
+sequenceDiagram
+    participant App as Application
+    participant Client as Client
+    participant MM as MetadataManager
+    participant Disp as Dispatcher
+    participant Queue as Event Queue
+    participant Storage as StorageAdapter
+    participant HTTP as HttpAdapter
+
+    App->>Client: init()
+    Client->>Storage: load()
+    Storage-->>Client: persisted events
+    Client->>Disp: restore events
+    Disp->>Queue: enqueue(events)
+
+    App->>Client: track(name, payload)
+    Client->>MM: getMetadata()
+    MM-->>Client: metadata
+    Client->>Disp: enqueue(event)
+    Disp->>Queue: add event
+
+    alt maxBatchSize reached
+        Disp->>Disp: flush()
+    else flushInterval elapsed
+        Disp->>Disp: flush()
+    end
+
+    Disp->>Queue: dequeue(maxBatchSize)
+    Disp->>HTTP: send(events)
+
+    alt Success (2xx)
+        HTTP-->>Disp: 200 OK
+        Disp->>Storage: clear()
+    else Server Error (5xx)
+        HTTP-->>Disp: 500 Error
+        Disp->>Disp: retry with backoff
+        Disp->>Queue: requeue(events)
+        Disp->>Storage: save(events)
+    else Storage Quota Exceeded
+        Storage-->>Disp: QuotaError
+        Disp->>Logger: warn(message)
+    end
+
+    App->>Client: dispose()
+    Client->>Disp: cleanup()
+    Disp->>Queue: clear()
+```
+
+### C. Concurrency Control Flow
+
+```mermaid
+stateDiagram-v2
+    [*] --> Idle
+
+    Idle --> Acquiring: flush called
+    Acquiring --> Flushing: mutex acquired
+    Acquiring --> Waiting: mutex locked
+
+    Waiting --> Flushing: mutex acquired
+
+    Flushing --> Sending: dequeue events
+    Sending --> Success: 2xx response
+    Sending --> Retry: 5xx/network error
+    Sending --> Failed: 4xx response
+
+    Success --> Releasing: clear storage
+    Retry --> Releasing: requeue & persist
+    Failed --> Releasing: drop events
+
+    Releasing --> Idle: mutex released
+
+    note right of Flushing
+        Only one flush
+        operation at a time
+    end note
+
+    note right of Retry
+        Exponential backoff
+        with jitter
+    end note
+```
+
+---
+
+## X. Quality and Implementation Checklist
 
 ### A. Performance
 
@@ -255,13 +479,10 @@ Where $\text{baseDelay}$ is $1000\text{ms}$ and $\text{jitter}$ is random
 3. **Event Sampling**: Configurable sampling rates for high-volume scenarios.
 4. **429 Rate Limit Handling**: Treat HTTP 429 (Too Many Requests) as a
    retryable error instead of a client error. Implement retry with exponential
-   backoff, respect `Retry-After` header when present, and re-queue events if
-5. **Storage adapter error recovery** — If `save()` throws, the dispatcher
-   doesn't handle it gracefully.
-6. **Batch-aware persistence** — The dispatcher calls
-   `save(this._queue.toArray())` after every single `enqueue()`. For
-   high-throughput scenarios, this is expensive. max retries exceeded to prevent
-   data loss during rate limiting.
-7. **Byte-based persisted queue limit**: The current limit is event-count based,
-   but storage quotas are byte-based. A byte-size limit option would more
+   backoff, respect `Retry-After` header when present, and re-queue events.
+5. **Byte-based Buffer Limit**: The current `maxBufferSize` is event-count
+   based, but storage quotas are byte-based. A byte-size limit option would more
    accurately prevent `QuotaExceededError`.
+6. **Configuration Validation**: Add runtime validation to warn when
+   `maxBufferSize < maxBatchSize` (misconfiguration that prevents batch from
+   being reached).
