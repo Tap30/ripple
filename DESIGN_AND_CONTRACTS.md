@@ -42,9 +42,11 @@ All custom functionality is abstracted via interfaces:
   `X-API-Key: {apiKey}` (or any other custom name) header. Must return an
   `HttpResponse`.
 - **`StorageAdapter`**: Handles event persistence on failure or initialization.
-  Methods (`save()`, `load()`, `clear()`) must be **idempotent** and handle
-  errors gracefully. **Throws `StorageQuotaExceededError`** when storage quota
-  is exceeded and events are dropped (after successfully saving reduced data).
+  Methods (`save()`, `load()`, `clear()`, `close()`) must be **idempotent** and
+  handle errors gracefully. **Throws `StorageQuotaExceededError`** when storage
+  quota is exceeded and events are dropped (after successfully saving reduced
+  data). The `close()` method is called during disposal to release resources
+  (e.g., close database connections, file handles).
 - **`LoggerAdapter`**: Handles SDK internal logging with configurable log levels
   (`DEBUG`, `INFO`, `WARN`, `ERROR`, `NONE`). Built-in implementations include
   `ConsoleLoggerAdapter` and `NoOpLoggerAdapter`.
@@ -59,30 +61,19 @@ All custom functionality is abstracted via interfaces:
 
 The SDK provides compile-time type safety through generic parameters:
 
-| Generic     | Constraint                | Description                                                                         |
-| :---------- | :------------------------ | :---------------------------------------------------------------------------------- |
-| `TEvents`   | `Record<string, unknown>` | **Optional:** Maps event names to their payload types for type-safe event tracking. |
-| `TMetadata` | `Record<string, unknown>` | **Optional:** Defines the structure of metadata attached to events.                 |
+| Generic     | Constraint | Description                                                                         |
+| :---------- | :--------- | :---------------------------------------------------------------------------------- |
+| `TEvents`   | `Record`   | **Optional:** Maps event names to their payload types for type-safe event tracking. |
+| `TMetadata` | `Record`   | **Optional:** Defines the structure of metadata attached to events.                 |
 
 #### Usage Examples
 
 ```ts
 // Define event types mapping
 type AppEvents = {
-  "user.login": {
-    email: string;
-    method: "google" | "email";
-  };
-  "page.view": {
-    url: string;
-    title: string;
-    duration?: number;
-  };
-  "purchase.completed": {
-    orderId: string;
-    amount: number;
-    currency: string;
-  };
+  "user.login": { email: string; method: "google" | "email" };
+  "page.view": { url: string; title: string; duration?: number };
+  "purchase.completed": { orderId: string; amount: number; currency: string };
 };
 
 // Define metadata structure
@@ -97,15 +88,14 @@ const client = new RippleClient<AppEvents, AppMetadata>(config);
 
 // Type-safe event tracking (compile-time validation)
 await client.track("user.login", {
-  email: "<user@example.com>",
+  email: "<email>",
   method: "google",
 });
 ```
 
 ### Backward Compatibility
 
-- **Single Generic**: `RippleClient<Record<string, unknown>, AppMetadata>`
-  (metadata-only typing)
+- **Single Generic**: `RippleClient<any, AppMetadata>` (metadata-only typing)
 - **No Generics**: `RippleClient` (no compile-time type checking)
 - **Both Generics**: `RippleClient<AppEvents, AppMetadata>` (full type safety)
 
@@ -132,14 +122,14 @@ await client.track("user.login", {
 
 The structure must be JSON-serializable.
 
-| Field       | Type                             | Description                                                 |
-| :---------- | :------------------------------- | :---------------------------------------------------------- |
-| `name`      | `string`                         | Event identifier.                                           |
-| `payload`   | `Map<string, unknown>` or `null` | Event data.                                                 |
-| `issuedAt`  | `number`                         | Unix timestamp in milliseconds.                             |
-| `sessionId` | `string` or `null`               | Session identifier (browser/native only).                   |
-| `metadata`  | `Map<string, unknown>` or `null` | Event/environment-specific metadata (e.g., schema version). |
-| `platform`  | `Platform` or `null`             | Platform information (auto-detected by runtime).            |
+| Field       | Type                 | Description                                                 |
+| :---------- | :------------------- | :---------------------------------------------------------- |
+| `name`      | `string`             | Event identifier.                                           |
+| `payload`   | `Map` or `null`      | Event data.                                                 |
+| `issuedAt`  | `number`             | Unix timestamp in milliseconds.                             |
+| `sessionId` | `string` or `null`   | Session identifier (browser/native only).                   |
+| `metadata`  | `Map` or `null`      | Event/environment-specific metadata (e.g., schema version). |
+| `platform`  | `Platform` or `null` | Platform information (auto-detected by runtime).            |
 
 #### Platform (Discriminated Union)
 
@@ -169,15 +159,15 @@ The structure must be JSON-serializable.
 
 ## V. Public API Contract
 
-| Method               | Signature                                                                                         | Description/Behavior                                                                                                                                                                            |
-| :------------------- | :------------------------------------------------------------------------------------------------ | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **`init()`**         | `() -> void` (or `Future/Promise`)                                                                | Restores persisted events (applying `maxBufferSize` limit) and starts scheduled flush. Events tracked before initialization are automatically queued and processed after `init()` completes.    |
-| **`track()`**        | `<K extends keyof TEvents>(name: K, payload?: TEvents[K], metadata?: Partial<TMetadata>) -> void` | Creates an enriched `Event` and enqueues it. **Type-safe** event names and payloads. Triggers **auto-flush** if `maxBatchSize` is reached. **Operations are queued if called before `init()`**. |
-| **`setMetadata()`**  | `<K extends keyof TMetadata>(key: K, value: TMetadata[K]) -> void`                                | Stores **type-safe** metadata for all subsequent events.                                                                                                                                        |
-| **`getMetadata()`**  | `() -> Partial<TMetadata>`                                                                        | **Returns all stored metadata** as a shallow copy. Returns empty object if no metadata is set.                                                                                                  |
-| **`getSessionId()`** | `() -> string \| null`                                                                            | **Returns current session ID** or `null` if not set. Session ID is auto-generated in browser environments.                                                                                      |
-| **`flush()`**        | `() -> void` (or `Future/Promise`)                                                                | **Manually sends all queued events immediately**. **Mutex-protected**.                                                                                                                          |
-| **`dispose()`**      | `() -> void`                                                                                      | **Cleans up resources and frees memory** (cancels timers, clears queues, releases locks, resets state). **Supports re-initialization** after disposal.                                          |
+| Method               | Signature                                                                | Description/Behavior                                                                                                                                                                            |
+| :------------------- | :----------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`init()`**         | `() -> void` (or `Future/Promise`)                                       | Restores persisted events (applying `maxBufferSize` limit) and starts scheduled flush. Events tracked before initialization are automatically queued and processed after `init()` completes.    |
+| **`track()`**        | `(name: K, payload?: TEvents[K], metadata?: Partial<TMetadata>) -> void` | Creates an enriched `Event` and enqueues it. **Type-safe** event names and payloads. Triggers **auto-flush** if `maxBatchSize` is reached. **Operations are queued if called before `init()`**. |
+| **`setMetadata()`**  | `(key: K, value: TMetadata[K]) -> void`                                  | Stores **type-safe** metadata for all subsequent events.                                                                                                                                        |
+| **`getMetadata()`**  | `() -> Partial<TMetadata>`                                               | **Returns all stored metadata** as a shallow copy. Returns empty object if no metadata is set.                                                                                                  |
+| **`getSessionId()`** | `() -> string \| null`                                                   | **Returns current session ID** or `null` if not set. Session ID is auto-generated in browser environments.                                                                                      |
+| **`flush()`**        | `() -> void` (or `Future/Promise`)                                       | **Manually sends all queued events immediately**. **Mutex-protected**.                                                                                                                          |
+| **`dispose()`**      | `() -> void`                                                             | **Cleans up resources and frees memory** (cancels timers, clears queues, releases locks, resets state). **Supports re-initialization** after disposal.                                          |
 
 ---
 
@@ -203,7 +193,10 @@ Retries are implemented with **exponential backoff and jitter**.
 | **Network Error** (Timeout) | **Retry**      | Re-queue and persist events. |
 
 The backoff delay calculation is:
+
 $$\text{delay} = (\text{baseDelay} \cdot 2^{\text{attempt}}) + \text{jitter}$$
+
+$$\text{test} = \text{test} + \text{test}$$
 
 Where $\text{baseDelay}$ is $1000\text{ms}$ and $\text{jitter}$ is random
 ($0-1000\text{ms}$).
@@ -228,9 +221,491 @@ Where $\text{baseDelay}$ is $1000\text{ms}$ and $\text{jitter}$ is random
 - **Type safety** is enforced at compile-time when using generic type
   parameters.
 - **`dispose()` provides complete memory cleanup**: clears event queues, cancels
-  scheduled flushes, releases mutex locks, and resets all internal state.
+  scheduled flushes, releases mutex locks, closes storage adapter, and resets
+  all internal state.
 - **Re-initialization after disposal**: After calling `dispose()`, you can call
   `init()` again to restart the client with a clean state.
+
+---
+
+## VII. Sequence Diagrams
+
+### Initialization Flow
+
+```mermaid
+sequenceDiagram
+    participant App
+    participant Client
+    participant Dispatcher
+    participant Storage@{ "type" : "database" }
+    participant Queue@{ "type" : "queue" }
+
+    App->>Client: init()
+    Client->>Client: Acquire init lock
+    Client->>Client: Check if already initialized
+    alt Already initialized
+        Client-->>App: Return (no-op)
+    else Not initialized
+        Client->>Dispatcher: restore()
+        Dispatcher->>Storage: load()
+        Storage-->>Dispatcher: Persisted events (or empty)
+        Dispatcher->>Dispatcher: Apply maxBufferSize limit
+        Dispatcher->>Queue (Buffer): Load events into queue
+        alt Queue has events
+            Dispatcher->>Dispatcher: Schedule flush timer
+        end
+        Client->>Client: Set initialized = true, disposed = false
+    end
+```
+
+### Track Event Flow
+
+```mermaid
+sequenceDiagram
+    participant App
+    participant Client
+    participant MetadataManager
+    participant Dispatcher
+    participant Queue@{ "type" : "queue" }
+    participant Storage@{ "type" : "database" }
+
+    App->>Client: track(name, payload, metadata)
+    Client->>Client: Validate event name
+    alt Client is disposed
+        Client-->>App: Silently drop event
+    else Client is active
+        Client->>Client: init() (auto-initialize if needed)
+        Client->>MetadataManager: getAll()
+        MetadataManager-->>Client: Shared metadata
+        Client->>Client: Merge shared + event metadata
+        Client->>Client: Create Event (name, payload, metadata, timestamp, platform)
+        Client->>Dispatcher: enqueue(event)
+        Dispatcher->>Queue (Buffer): Add event to queue
+        Dispatcher->>Dispatcher: Apply maxBufferSize limit (FIFO eviction)
+        Dispatcher->>Storage: save(events)
+        alt Queue size >= maxBatchSize
+            Dispatcher->>Dispatcher: flush()
+        else Queue size < maxBatchSize
+            Dispatcher->>Dispatcher: Schedule one-shot flush timer
+        end
+    end
+```
+
+### Flush Flow
+
+```mermaid
+sequenceDiagram
+    participant Dispatcher
+    participant Queue@{ "type" : "queue" }
+    participant HTTP
+    participant Storage@{ "type" : "database" }
+
+    Dispatcher->>Dispatcher: Acquire flush lock
+    Dispatcher->>Dispatcher: Cancel scheduled timer
+    alt Queue is empty
+        Dispatcher-->>Dispatcher: Return (nothing to flush)
+    else Queue has events
+        Dispatcher->>Queue (Buffer): Get all events
+        Dispatcher->>Queue (Buffer): Clear queue
+        loop For each batch (up to maxBatchSize)
+            Dispatcher->>HTTP: Send batch with headers
+            alt 2xx Success
+                Dispatcher->>Storage: clear()
+            else 4xx Client Error
+                Dispatcher->>Storage: clear()
+                Note over Dispatcher: Events dropped (no retry)
+            else 5xx Server Error
+                Dispatcher->>Dispatcher: Retry with backoff (see Retry Flow)
+            else Network Error
+                Dispatcher->>Dispatcher: Retry with backoff (see Retry Flow)
+            end
+        end
+    end
+    Dispatcher->>Dispatcher: Release flush lock
+```
+
+### Retry Flow
+
+```mermaid
+sequenceDiagram
+    participant Dispatcher
+    participant HTTP
+    participant Queue@{ "type" : "queue" }
+    participant Storage@{ "type" : "database" }
+
+    Dispatcher->>Dispatcher: Calculate backoff: (2^attempt)s + jitter
+    Dispatcher->>Dispatcher: Wait (or cancel if disposed)
+    alt Cancelled (disposed)
+        Dispatcher-->>Dispatcher: Abort retry
+    else Delay completed
+        Dispatcher->>HTTP: Retry send batch
+        alt Success (2xx)
+            Dispatcher->>Storage: clear()
+        else Still failing & attempts remaining
+            Dispatcher->>Dispatcher: Retry again (increment attempt)
+        else Max retries reached
+            Dispatcher->>Queue (Buffer): Re-queue failed events at front
+            Dispatcher->>Dispatcher: Apply maxBufferSize limit
+            Dispatcher->>Storage: save(events)
+            Note over Dispatcher: Events preserved for next flush
+        end
+    end
+```
+
+### Dispose Flow
+
+```mermaid
+sequenceDiagram
+    participant App
+    participant Client
+    participant Dispatcher
+    participant Queue@{ "type" : "queue" }
+    participant MetadataManager
+    participant Storage@{ "type" : "database" }
+
+    App->>Client: dispose()
+    Client->>Dispatcher: dispose()
+    Dispatcher->>Dispatcher: Set disposed = true
+    Dispatcher->>Dispatcher: Cancel in-flight retries (context cancellation)
+    Dispatcher->>Dispatcher: Stop scheduled flush timer
+    Dispatcher->>Queue (Buffer): Clear all events
+    Dispatcher->>Storage: close()
+    Client->>MetadataManager: clear()
+    Client->>Client: Set disposed = true, initialized = false
+```
+
+### Scheduled Flush (One-Shot Timer) Flow
+
+```mermaid
+sequenceDiagram
+    participant Dispatcher
+    participant Timer
+    participant Queue@{ "type" : "queue" }
+
+    Dispatcher->>Dispatcher: Check if timer already scheduled
+    alt Timer exists or disposed
+        Dispatcher-->>Dispatcher: Skip (no duplicate timers)
+    else No active timer
+        Dispatcher->>Timer: Schedule one-shot timer (flushInterval)
+        Note over Timer: Timer fires once after interval
+        Timer->>Timer: Clear timer reference
+        Timer->>Dispatcher: flush()
+        Note over Dispatcher: Next enqueue will schedule a new timer
+    end
+```
+
+### Buffer Limit (FIFO Eviction) Flow
+
+```mermaid
+sequenceDiagram
+    participant Dispatcher
+    participant Queue@{ "type" : "queue" }
+    participant Storage@{ "type" : "database" }
+
+    Dispatcher->>Dispatcher: Check maxBufferSize
+    alt maxBufferSize is 0 (unlimited)
+        Dispatcher-->>Dispatcher: No eviction needed
+    else Events exceed maxBufferSize
+        Dispatcher->>Dispatcher: Keep newest N events (drop oldest)
+        Dispatcher->>Queue: Replace queue with limited events
+        Dispatcher->>Storage: save(limited events)
+        Note over Dispatcher: Oldest events dropped (FIFO)
+    end
+```
+
+### Component Architecture
+
+```mermaid
+classDiagram
+    class Client {
+        -config: Config
+        -metadataManager: MetadataManager
+        -dispatcher: Dispatcher
+        -initialized: bool
+        -disposed: bool
+        +init()
+        +track(name, payload, metadata)
+        +setMetadata(key, value)
+        +getMetadata()
+        +flush()
+        +dispose()
+    }
+
+    class MetadataManager {
+        -metadata: Map
+        +set(key, value)
+        +getAll()
+        +clear()
+    }
+
+    class Dispatcher {
+        -queue: Queue
+        -httpAdapter: HttpAdapter
+        -storageAdapter: StorageAdapter
+        -config: DispatcherConfig
+        +enqueue(event)
+        +flush()
+        +restore()
+        +dispose()
+    }
+
+    class Queue {
+        -events: List
+        +enqueue(event)
+        +dequeue()
+        +toSlice()
+        +clear()
+    }
+
+    class HttpAdapter {
+        <<interface>>
+        +send(endpoint, events, headers)
+        +sendWithContext(ctx, endpoint, events, headers)
+    }
+
+    class StorageAdapter {
+        <<interface>>
+        +save(events)
+        +load()
+        +clear()
+        +close()
+    }
+
+    class LoggerAdapter {
+        <<interface>>
+        +debug(message, args)
+        +info(message, args)
+        +warn(message, args)
+        +error(message, args)
+    }
+
+    Client --> MetadataManager
+    Client --> Dispatcher
+    Dispatcher --> Queue
+    Dispatcher --> HttpAdapter
+    Dispatcher --> StorageAdapter
+    Dispatcher --> LoggerAdapter
+```
+
+### Client Lifecycle State Diagram
+
+```mermaid
+stateDiagram-v2
+    [*] --> Uninitialized: NewClient()
+
+    Uninitialized --> Initialized: init() called
+    Uninitialized --> Initialized: track() called (auto-init)
+
+    Initialized --> Initialized: track(), flush(), setMetadata()
+    Initialized --> Disposed: dispose() called
+
+    Disposed --> Disposed: track() called (silently dropped)
+    Disposed --> Initialized: init() called (re-initialization)
+
+    Disposed --> [*]: Client garbage collected
+
+    note right of Uninitialized
+        Events can be tracked
+        but queued until init
+    end note
+
+    note right of Initialized
+        Fully operational
+        Events processed normally
+    end note
+
+    note right of Disposed
+        Resources released
+        Events dropped
+        Can be re-initialized
+    end note
+```
+
+### HTTP Response Handling Decision Tree
+
+```mermaid
+flowchart TD
+    Start([HTTP Request Sent]) --> Response{Response<br/>Received?}
+
+    Response -->|Network Error| NetworkErr[Network Error]
+    Response -->|Success| StatusCheck{Status<br/>Code?}
+
+    StatusCheck -->|2xx| Success[Clear Storage]
+    StatusCheck -->|4xx| ClientErr[Client Error]
+    StatusCheck -->|5xx| ServerErr[Server Error]
+    StatusCheck -->|Other| UnexpectedErr[Unexpected Status]
+
+    Success --> End([Complete])
+
+    ClientErr --> Drop[Drop Events<br/>Clear Storage]
+    Drop --> End
+
+    UnexpectedErr --> DropUnexpected[Drop Events<br/>Clear Storage]
+    DropUnexpected --> End
+
+    ServerErr --> RetryCheck{Attempts <<br/>MaxRetries?}
+    NetworkErr --> RetryCheck
+
+    RetryCheck -->|Yes| Backoff[Calculate Backoff<br/>2^attempt + jitter]
+    RetryCheck -->|No| MaxRetry[Max Retries Reached]
+
+    Backoff --> Wait[Wait for Backoff]
+    Wait --> Cancelled{Disposed?}
+
+    Cancelled -->|Yes| Abort([Abort Retry])
+    Cancelled -->|No| Retry[Retry Request]
+    Retry --> Response
+
+    MaxRetry --> Requeue[Re-queue Events<br/>Apply Buffer Limit<br/>Persist to Storage]
+    Requeue --> End
+```
+
+### Auto-Initialization (Double-Checked Locking) Flow
+
+```mermaid
+sequenceDiagram
+    participant App
+    participant Client
+    participant InitMutex
+    participant Dispatcher
+
+    App->>Client: track(name, payload, metadata)
+    Client->>Client: Check if disposed
+    alt Disposed
+        Client-->>App: Drop event silently
+    else Not disposed
+        Client->>Client: First check: initialized?
+        alt Already initialized
+            Client->>Client: Continue to track
+        else Not initialized
+            Client->>InitMutex: Acquire lock
+            Client->>Client: Second check: initialized?
+            alt Still not initialized
+                Client->>Dispatcher: restore()
+                Client->>Client: Set initialized = true
+            else Another thread initialized
+                Note over Client: Skip initialization
+            end
+            Client->>InitMutex: Release lock
+        end
+        Client->>Client: Process track event
+    end
+```
+
+### Metadata Merge Flow
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant MetadataManager
+    participant Event
+
+    Client->>MetadataManager: getAll()
+    MetadataManager-->>Client: sharedMetadata = {userId: "123", env: "prod"}
+
+    Note over Client: Event-specific metadata provided:<br/>{env: "staging", version: "2.0"}
+
+    Client->>Client: Create eventMetadata copy
+
+    alt Event metadata is empty
+        Client->>Client: eventMetadata = sharedMetadata
+    else Event metadata exists
+        Client->>Client: Start with sharedMetadata
+        loop For each key in event metadata
+            Client->>Client: eventMetadata[key] = eventValue<br/>(overrides shared)
+        end
+    end
+
+    Note over Client: Final metadata:<br/>{userId: "123", env: "staging", version: "2.0"}
+
+    Client->>Event: Create event with merged metadata
+```
+
+### Concurrent Flush Handling
+
+```mermaid
+sequenceDiagram
+    participant Thread1
+    participant Thread2
+    participant FlushMutex
+    participant Dispatcher
+
+    Thread1->>Dispatcher: flush()
+    Thread1->>FlushMutex: Try acquire lock
+    FlushMutex-->>Thread1: Lock acquired
+
+    par Thread 1 flushing
+        Thread1->>Dispatcher: Process flush
+        Note over Dispatcher: Sending events...
+    and Thread 2 attempts flush
+        Thread2->>Dispatcher: flush()
+        Thread2->>FlushMutex: Try acquire lock
+        Note over FlushMutex: Blocked (Thread1 holds lock)
+    end
+
+    Thread1->>Dispatcher: Flush complete
+    Thread1->>FlushMutex: Release lock
+
+    FlushMutex-->>Thread2: Lock acquired
+    Thread2->>Dispatcher: Process flush
+    Note over Dispatcher: Queue may be empty<br/>if Thread1 flushed all events
+    Thread2->>FlushMutex: Release lock
+```
+
+### Storage Quota Exceeded Flow
+
+```mermaid
+sequenceDiagram
+    participant Dispatcher
+    participant Storage@{ "type" : "database" }
+    participant Logger
+
+    Dispatcher->>Storage: save(events)
+    Storage->>Storage: Attempt to write
+
+    alt Storage has space
+        Storage-->>Dispatcher: Success
+    else Quota exceeded
+        Storage->>Storage: Detect quota error
+        Storage->>Storage: Drop oldest 50% of events
+        Storage->>Storage: Retry save with reduced data
+
+        alt Retry successful
+            Storage-->>Dispatcher: Throw StorageQuotaExceededError<br/>{saved: 50, dropped: 50}
+            Dispatcher->>Logger: Warn (not error)
+            Note over Logger: "Storage quota exceeded,<br/>dropped 50 events"
+        else Retry also fails
+            Storage-->>Dispatcher: Throw generic storage error
+            Dispatcher->>Logger: Error
+        end
+    end
+```
+
+### Configuration Validation Flow
+
+```mermaid
+flowchart TD
+    Start([NewClient called]) --> ValidateRequired{Required fields<br/>present?}
+
+    ValidateRequired -->|Missing| ErrorRequired[Error: Missing required field]
+    ValidateRequired -->|Present| ValidateNumeric{Numeric values<br/>valid?}
+
+    ErrorRequired --> End([Return Error])
+
+    ValidateNumeric -->|Invalid| ErrorNumeric[Error: Invalid numeric value]
+    ValidateNumeric -->|Valid| SetDefaults[Set default values<br/>if not provided]
+
+    ErrorNumeric --> End
+
+    SetDefaults --> BufferCheck{maxBufferSize > 0<br/>AND<br/>maxBufferSize < maxBatchSize?}
+
+    BufferCheck -->|Yes| ErrorBuffer[Error: maxBufferSize must be<br/>>= maxBatchSize]
+    BufferCheck -->|No| CreateComponents[Create components:<br/>MetadataManager<br/>Dispatcher<br/>Queue]
+
+    ErrorBuffer --> End
+
+    CreateComponents --> Success([Return Client])
+```
 
 ---
 
@@ -241,7 +716,7 @@ Where $\text{baseDelay}$ is $1000\text{ms}$ and $\text{jitter}$ is random
 **Critical Rule**: `maxBufferSize` should always be **greater than or equal to**
 `maxBatchSize`.
 
-**Runtime Validation**: The SDK warns at initialization when
+**Runtime Validation**: The SDK returns an error at initialization when
 `maxBufferSize < maxBatchSize` to help catch misconfigurations early.
 
 | Configuration                                | Behavior                                                                                  | Recommendation  |
@@ -259,6 +734,7 @@ Where $\text{baseDelay}$ is $1000\text{ms}$ and $\text{jitter}$ is random
   - Determines network request frequency
   - Affects latency and throughput
   - Smaller values = more frequent requests, lower latency
+
 - **`maxBufferSize`**: Controls **how many** events are kept in memory/storage
   - Prevents unbounded memory growth
   - Drops oldest events (FIFO) when exceeded
@@ -317,7 +793,7 @@ Storage adapters should automatically handle quota exceeded errors:
 - **Native Storage**: Device-dependent (typically 100MB+ available)
 - **File System**: Disk-dependent (typically unlimited for practical purposes)
 
-## X. Quality and Implementation Checklist
+## IX. Quality and Implementation Checklist
 
 ### A. Performance
 
