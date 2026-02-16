@@ -20,6 +20,18 @@ A high-performance, scalable, and fault tolerant event tracking SDKs.
 - [Go](https://github.com/Tap30/ripple-go)
 - [Kotlin (android, kotlin, java)](https://github.com/Tap30/ripple-kotlin)
 
+## Ripple Guides and Best Practices
+
+- [Security Best Practices](https://github.com/Tap30/ripple/blob/main/guides/SECURITY.md)
+- [Disaster Recovery](https://github.com/Tap30/ripple/blob/main/guides/DISASTER_RECOVERY.md)
+- [Performance Tuning](https://github.com/Tap30/ripple/blob/main/guides/PERFORMANCE_TUNING.md)
+
+## Design and API Contract
+
+Read the
+[Design and API Contract Documentation](https://github.com/Tap30/ripple/blob/main/DESIGN_AND_CONTRACTS.md)
+to learn about the framework-agnostic API contract for SDKs.
+
 ## License
 
 This project is licensed under the terms of the
