@@ -16,7 +16,7 @@ extensibility.
 | **Type Safety**           | Maximize compile-time error detection and developer experience using language-specific typing (generics, type hints, etc.).                                      |
 | **Dependency Injection**  | Use **constructor injection** for adapters (e.g., HTTP, Storage) to ensure **testability** and **flexibility**. Pass interfaces/protocols, not concrete classes. |
 | **Extensibility**         | Define clear interfaces for all key extension points (e.g., `HttpAdapter`, `StorageAdapter`).                                                                    |
-| **Concurrency Safety**    | Protect all shared state (queues, metadata, flush operations) using appropriate synchronization primitives (mutexes, locks).                                     |
+| **Concurrency Safety**    | Protect all shared state (buffers, metadata, flush operations) using appropriate synchronization primitives (mutexes, locks).                                    |
 | **Minimal Dependencies**  | Keep core dependencies restricted to the standard library to minimize bundle size and security risk.                                                             |
 | **Initialization Safety** | Prevent data loss by queuing operations before `init()`. Track calls are automatically queued and processed after initialization completes.                      |
 | **Idiomatic APIs**        | Adhere to language-specific conventions (e.g., naming, error handling, async patterns) while maintaining behavioral consistency.                                 |
@@ -27,12 +27,12 @@ extensibility.
 
 The SDK uses four primary, single-responsibility components:
 
-| Component           | Design Pattern            | Primary Responsibilities                                                                                      |
-| :------------------ | :------------------------ | :------------------------------------------------------------------------------------------------------------ |
-| **Client**          | **Facade**                | Public API (`track`, `setMetadata`, `flush`, `init`, `dispose`). Coordinates MetadataManager and Dispatcher.  |
-| **MetadataManager** | **Repository**            | Stores and retrieves global metadata. Provides thread-safe metadata snapshots for events.                     |
-| **Dispatcher**      | **Command Queue**         | Manages event queue, batch processing, **atomic flush operations**, and retry logic with exponential backoff. |
-| **Mutex**           | **Mutual Exclusion Lock** | Serializes concurrent operations (e.g., `flush()`) to prevent race conditions.                                |
+| Component           | Design Pattern            | Primary Responsibilities                                                                                       |
+| :------------------ | :------------------------ | :------------------------------------------------------------------------------------------------------------- |
+| **Client**          | **Facade**                | Public API (`track`, `setMetadata`, `flush`, `init`, `dispose`). Coordinates MetadataManager and Dispatcher.   |
+| **MetadataManager** | **Repository**            | Stores and retrieves global metadata. Provides thread-safe metadata snapshots for events.                      |
+| **Dispatcher**      | **Command Queue**         | Manages event buffer, batch processing, **atomic flush operations**, and retry logic with exponential backoff. |
+| **Mutex**           | **Mutual Exclusion Lock** | Serializes concurrent operations (e.g., `flush()`) to prevent race conditions.                                 |
 
 ### Adapter Interfaces
 
@@ -167,7 +167,7 @@ The structure must be JSON-serializable.
 | **`getMetadata()`**  | `() -> Partial<TMetadata>`                                               | **Returns all stored metadata** as a shallow copy. Returns empty object if no metadata is set.                                                                                                  |
 | **`getSessionId()`** | `() -> string \| null`                                                   | **Returns current session ID** or `null` if not set. Session ID is auto-generated in browser environments.                                                                                      |
 | **`flush()`**        | `() -> void` (or `Future/Promise`)                                       | **Manually sends all queued events immediately**. **Mutex-protected**.                                                                                                                          |
-| **`dispose()`**      | `() -> void`                                                             | **Cleans up resources and frees memory** (cancels timers, clears queues, releases locks, resets state). **Supports re-initialization** after disposal.                                          |
+| **`dispose()`**      | `() -> void`                                                             | **Cleans up resources and frees memory** (cancels timers, clears buffers, releases locks, resets state). **Supports re-initialization** after disposal.                                         |
 
 ---
 
@@ -204,7 +204,7 @@ Where $\text{baseDelay}$ is $1000\text{ms}$ and $\text{jitter}$ is random
 - All public methods are thread-safe.
 - Concurrent `flush()` calls are serialized via the Mutex.
 - Re-queueing failed events maintains order:
-  `[...failedEvents, ...currentQueue]`.
+  `[...failedEvents, ...currentBuffer]`.
 
 ### D. Initialization and Lifecycle
 
@@ -218,9 +218,9 @@ Where $\text{baseDelay}$ is $1000\text{ms}$ and $\text{jitter}$ is random
   provided.
 - **Type safety** is enforced at compile-time when using generic type
   parameters.
-- **`dispose()` provides complete memory cleanup**: clears event queues, cancels
-  scheduled flushes, releases mutex locks, closes storage adapter, and resets
-  all internal state.
+- **`dispose()` provides complete memory cleanup**: clears event buffers,
+  cancels scheduled flushes, releases mutex locks, closes storage adapter, and
+  resets all internal state.
 - **Re-initialization after disposal**: After calling `dispose()`, you can call
   `init()` again to restart the client with a clean state.
 
@@ -573,7 +573,7 @@ Storage adapters should automatically handle quota exceeded errors:
 - **Time Complexity**: `enqueue()`, `dequeue()`, `setMetadata()`,
   `getMetadata()` are **O(1)**. `flush()` is **O(n)**, where $n$ is the batch
   size.
-- **Space Complexity**: Queue is **O(n)** (number of queued events).
+- **Space Complexity**: Buffer is **O(n)** (number of queued events).
 
 ### B. Testing and Standards
 
