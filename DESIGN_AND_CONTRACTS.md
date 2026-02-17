@@ -196,8 +196,6 @@ The backoff delay calculation is:
 
 $$\text{delay} = (\text{baseDelay} \cdot 2^{\text{attempt}}) + \text{jitter}$$
 
-$$\text{test} = \text{test} + \text{test}$$
-
 Where $\text{baseDelay}$ is $1000\text{ms}$ and $\text{jitter}$ is random
 ($0-1000\text{ms}$).
 
@@ -238,23 +236,22 @@ sequenceDiagram
     participant Client
     participant Dispatcher
     participant Storage@{ "type" : "database" }
-    participant Queue@{ "type" : "queue" }
+    participant Buffer@{ "type" : "queue" }
 
     App->>Client: init()
-    Client->>Client: Acquire init lock
     Client->>Client: Check if already initialized
     alt Already initialized
         Client-->>App: Return (no-op)
     else Not initialized
+        Client->>Client: Acquire init lock
         Client->>Dispatcher: restore()
         Dispatcher->>Storage: load()
         Storage-->>Dispatcher: Persisted events (or empty)
         Dispatcher->>Dispatcher: Apply maxBufferSize limit
-        Dispatcher->>Queue (Buffer): Load events into queue
-        alt Queue has events
+        Dispatcher->>Buffer: Load events into buffer
+        alt Buffer has events
             Dispatcher->>Dispatcher: Schedule flush timer
         end
-        Client->>Client: Set initialized = true, disposed = false
     end
 ```
 
@@ -266,11 +263,10 @@ sequenceDiagram
     participant Client
     participant MetadataManager
     participant Dispatcher
-    participant Queue@{ "type" : "queue" }
+    participant Buffer@{ "type" : "queue" }
     participant Storage@{ "type" : "database" }
 
     App->>Client: track(name, payload, metadata)
-    Client->>Client: Validate event name
     alt Client is disposed
         Client-->>App: Silently drop event
     else Client is active
@@ -278,14 +274,14 @@ sequenceDiagram
         Client->>MetadataManager: getAll()
         MetadataManager-->>Client: Shared metadata
         Client->>Client: Merge shared + event metadata
-        Client->>Client: Create Event (name, payload, metadata, timestamp, platform)
+        Client->>Client: Create Event
         Client->>Dispatcher: enqueue(event)
-        Dispatcher->>Queue (Buffer): Add event to queue
+        Dispatcher->>Buffer: Add event to buffer
         Dispatcher->>Dispatcher: Apply maxBufferSize limit (FIFO eviction)
         Dispatcher->>Storage: save(events)
-        alt Queue size >= maxBatchSize
+        alt Buffer size >= maxBatchSize
             Dispatcher->>Dispatcher: flush()
-        else Queue size < maxBatchSize
+        else Buffer size < maxBatchSize
             Dispatcher->>Dispatcher: Schedule one-shot flush timer
         end
     end
@@ -293,20 +289,26 @@ sequenceDiagram
 
 ### Flush Flow
 
+A flush operation can be triggered:
+
+- Automatically at defined `flushInterval` schedules
+- Whenever the `maxBatchSize` is exceeded
+- Manually via `client.flush()`
+
 ```mermaid
 sequenceDiagram
     participant Dispatcher
-    participant Queue@{ "type" : "queue" }
+    participant Buffer@{ "type" : "queue" }
     participant HTTP
     participant Storage@{ "type" : "database" }
 
     Dispatcher->>Dispatcher: Acquire flush lock
     Dispatcher->>Dispatcher: Cancel scheduled timer
-    alt Queue is empty
+    alt Buffer is empty
         Dispatcher-->>Dispatcher: Return (nothing to flush)
-    else Queue has events
-        Dispatcher->>Queue (Buffer): Get all events
-        Dispatcher->>Queue (Buffer): Clear queue
+    else Buffer has events
+        Dispatcher->>Buffer: Get all events and clear buffer
+        Buffer-->>Dispatcher: Returns events
         loop For each batch (up to maxBatchSize)
             Dispatcher->>HTTP: Send batch with headers
             alt 2xx Success
@@ -330,11 +332,10 @@ sequenceDiagram
 sequenceDiagram
     participant Dispatcher
     participant HTTP
-    participant Queue@{ "type" : "queue" }
+    participant Buffer@{ "type" : "queue" }
     participant Storage@{ "type" : "database" }
 
-    Dispatcher->>Dispatcher: Calculate backoff: (2^attempt)s + jitter
-    Dispatcher->>Dispatcher: Wait (or cancel if disposed)
+    Dispatcher->>Dispatcher: Wait for calculated backoff delay (or cancel if disposed)
     alt Cancelled (disposed)
         Dispatcher-->>Dispatcher: Abort retry
     else Delay completed
@@ -344,7 +345,7 @@ sequenceDiagram
         else Still failing & attempts remaining
             Dispatcher->>Dispatcher: Retry again (increment attempt)
         else Max retries reached
-            Dispatcher->>Queue (Buffer): Re-queue failed events at front
+            Dispatcher->>Buffer: Re-queue failed events at front
             Dispatcher->>Dispatcher: Apply maxBufferSize limit
             Dispatcher->>Storage: save(events)
             Note over Dispatcher: Events preserved for next flush
@@ -358,20 +359,18 @@ sequenceDiagram
 sequenceDiagram
     participant App
     participant Client
-    participant Dispatcher
-    participant Queue@{ "type" : "queue" }
     participant MetadataManager
+    participant Dispatcher
+    participant Buffer@{ "type" : "queue" }
     participant Storage@{ "type" : "database" }
 
     App->>Client: dispose()
     Client->>Dispatcher: dispose()
-    Dispatcher->>Dispatcher: Set disposed = true
     Dispatcher->>Dispatcher: Cancel in-flight retries (context cancellation)
     Dispatcher->>Dispatcher: Stop scheduled flush timer
-    Dispatcher->>Queue (Buffer): Clear all events
+    Dispatcher->>Buffer: Clear all events
     Dispatcher->>Storage: close()
     Client->>MetadataManager: clear()
-    Client->>Client: Set disposed = true, initialized = false
 ```
 
 ### Scheduled Flush (One-Shot Timer) Flow
@@ -380,7 +379,6 @@ sequenceDiagram
 sequenceDiagram
     participant Dispatcher
     participant Timer
-    participant Queue@{ "type" : "queue" }
 
     Dispatcher->>Dispatcher: Check if timer already scheduled
     alt Timer exists or disposed
@@ -399,126 +397,18 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant Dispatcher
-    participant Queue@{ "type" : "queue" }
+    participant Buffer@{ "type" : "queue" }
     participant Storage@{ "type" : "database" }
 
     Dispatcher->>Dispatcher: Check maxBufferSize
-    alt maxBufferSize is 0 (unlimited)
+    alt maxBufferSize isn't set
         Dispatcher-->>Dispatcher: No eviction needed
     else Events exceed maxBufferSize
         Dispatcher->>Dispatcher: Keep newest N events (drop oldest)
-        Dispatcher->>Queue: Replace queue with limited events
+        Dispatcher->>Buffer: Replace buffer with limited events
         Dispatcher->>Storage: save(limited events)
         Note over Dispatcher: Oldest events dropped (FIFO)
     end
-```
-
-### Component Architecture
-
-```mermaid
-classDiagram
-    class Client {
-        -config: Config
-        -metadataManager: MetadataManager
-        -dispatcher: Dispatcher
-        -initialized: bool
-        -disposed: bool
-        +init()
-        +track(name, payload, metadata)
-        +setMetadata(key, value)
-        +getMetadata()
-        +flush()
-        +dispose()
-    }
-
-    class MetadataManager {
-        -metadata: Map
-        +set(key, value)
-        +getAll()
-        +clear()
-    }
-
-    class Dispatcher {
-        -queue: Queue
-        -httpAdapter: HttpAdapter
-        -storageAdapter: StorageAdapter
-        -config: DispatcherConfig
-        +enqueue(event)
-        +flush()
-        +restore()
-        +dispose()
-    }
-
-    class Queue {
-        -events: List
-        +enqueue(event)
-        +dequeue()
-        +toSlice()
-        +clear()
-    }
-
-    class HttpAdapter {
-        <<interface>>
-        +send(endpoint, events, headers)
-        +sendWithContext(ctx, endpoint, events, headers)
-    }
-
-    class StorageAdapter {
-        <<interface>>
-        +save(events)
-        +load()
-        +clear()
-        +close()
-    }
-
-    class LoggerAdapter {
-        <<interface>>
-        +debug(message, args)
-        +info(message, args)
-        +warn(message, args)
-        +error(message, args)
-    }
-
-    Client --> MetadataManager
-    Client --> Dispatcher
-    Dispatcher --> Queue
-    Dispatcher --> HttpAdapter
-    Dispatcher --> StorageAdapter
-    Dispatcher --> LoggerAdapter
-```
-
-### Client Lifecycle State Diagram
-
-```mermaid
-stateDiagram-v2
-    [*] --> Uninitialized: NewClient()
-
-    Uninitialized --> Initialized: init() called
-    Uninitialized --> Initialized: track() called (auto-init)
-
-    Initialized --> Initialized: track(), flush(), setMetadata()
-    Initialized --> Disposed: dispose() called
-
-    Disposed --> Disposed: track() called (silently dropped)
-    Disposed --> Initialized: init() called (re-initialization)
-
-    Disposed --> [*]: Client garbage collected
-
-    note right of Uninitialized
-        Events can be tracked
-        but queued until init
-    end note
-
-    note right of Initialized
-        Fully operational
-        Events processed normally
-    end note
-
-    note right of Disposed
-        Resources released
-        Events dropped
-        Can be re-initialized
-    end note
 ```
 
 ### HTTP Response Handling Decision Tree
@@ -560,67 +450,6 @@ flowchart TD
     Requeue --> End
 ```
 
-### Auto-Initialization (Double-Checked Locking) Flow
-
-```mermaid
-sequenceDiagram
-    participant App
-    participant Client
-    participant InitMutex
-    participant Dispatcher
-
-    App->>Client: track(name, payload, metadata)
-    Client->>Client: Check if disposed
-    alt Disposed
-        Client-->>App: Drop event silently
-    else Not disposed
-        Client->>Client: First check: initialized?
-        alt Already initialized
-            Client->>Client: Continue to track
-        else Not initialized
-            Client->>InitMutex: Acquire lock
-            Client->>Client: Second check: initialized?
-            alt Still not initialized
-                Client->>Dispatcher: restore()
-                Client->>Client: Set initialized = true
-            else Another thread initialized
-                Note over Client: Skip initialization
-            end
-            Client->>InitMutex: Release lock
-        end
-        Client->>Client: Process track event
-    end
-```
-
-### Metadata Merge Flow
-
-```mermaid
-sequenceDiagram
-    participant Client
-    participant MetadataManager
-    participant Event
-
-    Client->>MetadataManager: getAll()
-    MetadataManager-->>Client: sharedMetadata = {userId: "123", env: "prod"}
-
-    Note over Client: Event-specific metadata provided:<br/>{env: "staging", version: "2.0"}
-
-    Client->>Client: Create eventMetadata copy
-
-    alt Event metadata is empty
-        Client->>Client: eventMetadata = sharedMetadata
-    else Event metadata exists
-        Client->>Client: Start with sharedMetadata
-        loop For each key in event metadata
-            Client->>Client: eventMetadata[key] = eventValue<br/>(overrides shared)
-        end
-    end
-
-    Note over Client: Final metadata:<br/>{userId: "123", env: "staging", version: "2.0"}
-
-    Client->>Event: Create event with merged metadata
-```
-
 ### Concurrent Flush Handling
 
 ```mermaid
@@ -650,61 +479,6 @@ sequenceDiagram
     Thread2->>Dispatcher: Process flush
     Note over Dispatcher: Queue may be empty<br/>if Thread1 flushed all events
     Thread2->>FlushMutex: Release lock
-```
-
-### Storage Quota Exceeded Flow
-
-```mermaid
-sequenceDiagram
-    participant Dispatcher
-    participant Storage@{ "type" : "database" }
-    participant Logger
-
-    Dispatcher->>Storage: save(events)
-    Storage->>Storage: Attempt to write
-
-    alt Storage has space
-        Storage-->>Dispatcher: Success
-    else Quota exceeded
-        Storage->>Storage: Detect quota error
-        Storage->>Storage: Drop oldest 50% of events
-        Storage->>Storage: Retry save with reduced data
-
-        alt Retry successful
-            Storage-->>Dispatcher: Throw StorageQuotaExceededError<br/>{saved: 50, dropped: 50}
-            Dispatcher->>Logger: Warn (not error)
-            Note over Logger: "Storage quota exceeded,<br/>dropped 50 events"
-        else Retry also fails
-            Storage-->>Dispatcher: Throw generic storage error
-            Dispatcher->>Logger: Error
-        end
-    end
-```
-
-### Configuration Validation Flow
-
-```mermaid
-flowchart TD
-    Start([NewClient called]) --> ValidateRequired{Required fields<br/>present?}
-
-    ValidateRequired -->|Missing| ErrorRequired[Error: Missing required field]
-    ValidateRequired -->|Present| ValidateNumeric{Numeric values<br/>valid?}
-
-    ErrorRequired --> End([Return Error])
-
-    ValidateNumeric -->|Invalid| ErrorNumeric[Error: Invalid numeric value]
-    ValidateNumeric -->|Valid| SetDefaults[Set default values<br/>if not provided]
-
-    ErrorNumeric --> End
-
-    SetDefaults --> BufferCheck{maxBufferSize > 0<br/>AND<br/>maxBufferSize < maxBatchSize?}
-
-    BufferCheck -->|Yes| ErrorBuffer[Error: maxBufferSize must be<br/>>= maxBatchSize]
-    BufferCheck -->|No| CreateComponents[Create components:<br/>MetadataManager<br/>Dispatcher<br/>Queue]
-
-    ErrorBuffer --> End
-
-    CreateComponents --> Success([Return Client])
 ```
 
 ---
@@ -781,14 +555,13 @@ Storage adapters should automatically handle quota exceeded errors:
 
 | Characteristic       | Small Volume (<100 events)      | Medium Volume (100-1000 events) | Large Volume (>1000 events) |
 | :------------------- | :------------------------------ | :------------------------------ | :-------------------------- |
-| **Browser**          | LocalStorage, Cookies           | LocalStorage, SessionStorage    | IndexedDB                   |
+| **Browser**          | LocalStorage                    | LocalStorage                    | IndexedDB                   |
 | **Native (Mobile)**  | SharedPreferences, UserDefaults | SQLite, Realm                   | SQLite, Realm               |
 | **Server (Node.js)** | In-Memory, File System          | File System, SQLite             | Database, File System       |
 
 **Capacity Guidelines**:
 
-- **Cookies**: ~4KB (very limited, use only for minimal tracking)
-- **LocalStorage/SessionStorage**: ~5-10MB (browser-dependent)
+- **LocalStorage**: ~5-10MB (browser-dependent)
 - **IndexedDB**: ~50MB+ (browser-dependent, can request more)
 - **Native Storage**: Device-dependent (typically 100MB+ available)
 - **File System**: Disk-dependent (typically unlimited for practical purposes)
