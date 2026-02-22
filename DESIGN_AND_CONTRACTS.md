@@ -93,12 +93,6 @@ await client.track("user.login", {
 });
 ```
 
-### Backward Compatibility
-
-- **Single Generic**: `RippleClient<any, AppMetadata>` (metadata-only typing)
-- **No Generics**: `RippleClient` (no compile-time type checking)
-- **Both Generics**: `RippleClient<AppEvents, AppMetadata>` (full type safety)
-
 ---
 
 ## IV. Data Structures (Contracts)
