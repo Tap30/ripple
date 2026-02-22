@@ -499,7 +499,7 @@ sequenceDiagram
 | `maxBatchSize: 20, maxBufferSize: 1000`      | ✅ Large buffer for extended offline periods, efficient batching                          | **Recommended** |
 | `maxBatchSize: 100, maxBufferSize: 50`       | ❌ Batch size never reached, events dropped unnecessarily, only time-based flush triggers | **Avoid**       |
 | `maxBatchSize: 50, maxBufferSize: 50`        | ⚠️ Works but no room for accumulation during brief network issues                         | **Suboptimal**  |
-| `maxBatchSize: 10, maxBufferSize: undefined` | ✅ Unlimited buffer, events never dropped (may cause memory issues in extreme cases)      | **Default**     |
+| `maxBatchSize: 10, maxBufferSize: unlimited` | ✅ Unlimited buffer, events never dropped (may cause memory issues in extreme cases)      | **Default**     |
 
 **Understanding the Parameters**:
 
