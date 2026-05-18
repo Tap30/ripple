@@ -99,18 +99,19 @@ await client.track("user.login", {
 
 ### 1. `Config` (Initialization)
 
-| Field            | Type             | Constraint/Default                                                                                                |
-| :--------------- | :--------------- | :---------------------------------------------------------------------------------------------------------------- |
-| `apiKey`         | `string`         | **Required:** API authentication key.                                                                             |
-| `endpoint`       | `string`         | **Required:** Valid HTTPS URL.                                                                                    |
-| `apiKeyHeader?`  | `string`         | **Optional:** Header name for API key **(Default: "X-API-Key")**                                                  |
-| `flushInterval?` | `number`         | **Optional:** Auto-flush interval in ms. **(Default: 5000)**.                                                     |
-| `maxBatchSize?`  | `number`         | **Optional:** Max events per batch. **(Default: 10)**. Triggers immediate flush when reached.                     |
-| `maxBufferSize?` | `number`         | **Optional:** Max events in memory/storage. **(Default: unlimited)**. Drops oldest events (FIFO) when exceeded.   |
-| `maxRetries?`    | `number`         | **Optional:** Max retry attempts. **(Default: 3)**.                                                               |
-| `httpAdapter`    | `HttpAdapter`    | **Required:** Custom HTTP adapter for API requests.                                                               |
-| `storageAdapter` | `StorageAdapter` | **Required:** Custom storage adapter for persistence.                                                             |
-| `loggerAdapter?` | `LoggerAdapter`  | **Optional:** Custom logger adapter for SDK internal logging. **(Default: ConsoleLoggerAdapter with WARN level)** |
+| Field            | Type                        | Constraint/Default                                                                                                                            |
+| :--------------- | :-------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apiKey`         | `string`                    | **Required:** API authentication key.                                                                                                         |
+| `endpoint`       | `string`                    | **Required:** Valid HTTPS URL.                                                                                                                |
+| `apiKeyHeader?`  | `string`                    | **Optional:** Header name for API key **(Default: "X-API-Key")**                                                                              |
+| `flushInterval?` | `number`                    | **Optional:** Auto-flush interval in ms. **(Default: 5000)**.                                                                                 |
+| `maxBatchSize?`  | `number`                    | **Optional:** Max events per batch. **(Default: 10)**. Triggers immediate flush when reached.                                                 |
+| `maxBufferSize?` | `number`                    | **Optional:** Max events in memory/storage. **(Default: unlimited)**. Drops oldest events (FIFO) when exceeded.                               |
+| `maxRetries?`    | `number`                    | **Optional:** Max retry attempts. **(Default: 3)**.                                                                                           |
+| `httpAdapter`    | `HttpAdapter`               | **Required:** Custom HTTP adapter for API requests.                                                                                           |
+| `storageAdapter` | `StorageAdapter`            | **Required:** Custom storage adapter for persistence.                                                                                         |
+| `loggerAdapter?` | `LoggerAdapter`             | **Optional:** Custom logger adapter for SDK internal logging. **(Default: ConsoleLoggerAdapter with WARN level)**                             |
+| `eventSampler?`  | `(event: Event) => boolean` | **Optional:** Synchronous function called after event construction. Return `true` to enqueue, `false` to drop. **(Default: all events pass)** |
 
 ### 2. `Event` (API Payload)
 
@@ -269,7 +270,12 @@ sequenceDiagram
         MetadataManager-->>Client: Shared metadata
         Client->>Client: Merge shared + event metadata
         Client->>Client: Create Event
-        Client->>Dispatcher: enqueue(event)
+        Client->>Client: eventSampler(event)
+        alt Sampler returns false
+            Client-->>App: Silently drop event
+        else Sampler returns true (or no sampler)
+            Client->>Dispatcher: enqueue(event)
+        end
         Dispatcher->>Buffer: Add event to buffer
         Dispatcher->>Dispatcher: Apply maxBufferSize limit (FIFO eviction)
         Dispatcher->>Storage: save(events)
@@ -582,10 +588,9 @@ Storage adapters should automatically handle quota exceeded errors:
 1. **Middleware System**: Introduce hooks for event transformation, filtering,
    and enrichment.
 2. **Batch Compression**: Add optional Gzip compression for large event batches.
-3. **Event Sampling**: Configurable sampling rates for high-volume scenarios.
-4. **429 Rate Limit Handling**: Treat HTTP 429 (Too Many Requests) as a
+3. **429 Rate Limit Handling**: Treat HTTP 429 (Too Many Requests) as a
    retryable error instead of a client error. Implement retry with exponential
    backoff, respect `Retry-After` header when present, and re-queue events.
-5. **Byte-based Buffer Limit**: The current `maxBufferSize` is event-count
+4. **Byte-based Buffer Limit**: The current `maxBufferSize` is event-count
    based, but storage quotas are byte-based. A byte-size limit option would more
    accurately prevent `QuotaExceededError`.
