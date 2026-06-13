@@ -295,9 +295,9 @@ type UserIdentifiedPayload = {
 
 Records that a user loaded a specific web page or mobile app screen.
 
-**Nuance (`screened` vs. `product_viewed`):** Trigger `screen` for every page load
-(e.g., “Home”, “About Us”, “Contact”). Trigger `product_viewed` in addition to
-screen specifically when the page loaded is a Product Detail Page (PDP).
+**Nuance (`screened` vs. `product_viewed`):** Trigger `screen` for every page
+load (e.g., “Home”, “About Us”, “Contact”). Trigger `product_viewed` in addition
+to screen specifically when the page loaded is a Product Detail Page (PDP).
 
 **Note:** `document.referrer` will return an empty string (`""`) in a few common
 scenarios:
@@ -699,6 +699,31 @@ type OrderFulfillmentStatusUpdatedPayload = {
   previousStatus: string;
   newStatus: string;
   reason?: string;
+  customProperties?: Record<string, Primitive>;
+};
+```
+
+##### `order_reviewed`
+
+Fired when a user submits a rating, feedback, or a written review for an entire
+order (e.g., rating the delivery experience, packaging, or overall
+satisfaction), distinct from reviewing individual products.
+
+**Use case:** Used to measure overall customer satisfaction (like CSAT or NPS),
+evaluate fulfillment and delivery performance, and identify operational issues
+that occur post-purchase.
+
+```ts
+type OrderReviewedPayload = {
+  order: Order;
+  /** Unique identifier for the submitted review. */
+  reviewId: string;
+  /** The numerical rating given by the user (e.g., 1 to 5). */
+  rating: number;
+  /** The title or summary of the review. */
+  title?: string;
+  /** The full text body of the review. */
+  body?: string;
   customProperties?: Record<string, Primitive>;
 };
 ```
