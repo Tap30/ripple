@@ -295,7 +295,7 @@ type UserIdentifiedPayload = {
 
 Records that a user loaded a specific web page or mobile app screen.
 
-**Nuance (`screen` vs. `product_viewed`):** Trigger `screen` for every page load
+**Nuance (`screened` vs. `product_viewed`):** Trigger `screen` for every page load
 (e.g., “Home”, “About Us”, “Contact”). Trigger `product_viewed` in addition to
 screen specifically when the page loaded is a Product Detail Page (PDP).
 
