@@ -1234,7 +1234,7 @@ type OrderFulfillmentStatusUpdatedPayload = {
   /**
    * The previous fulfillment status.
    */
-  previousStatus: string;
+  previousStatus?: string;
   /**
    * The new fulfillment status.
    */
