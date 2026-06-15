@@ -460,7 +460,7 @@ type Payment = {
   /**
    * Amount processed in this payment.
    */
-  amount: Money;
+  value: Money;
   /**
    * The order associated with this payment.
    */
