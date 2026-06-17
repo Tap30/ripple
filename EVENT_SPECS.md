@@ -117,7 +117,7 @@ type Event<TMetadata = Record<string, unknown>> = {
   /**
    * Environment/App-specific data attached to all events (e.g., app version, build number).
    */
-  metadata: TMetadata | null;
+  metadata: Partial<TMetadata> | null;
   /**
    * Platform context.
    */
@@ -390,9 +390,9 @@ type Checkout = {
    */
   order: Omit<Order, "orderId" | "transactionId" | "checkoutId">;
   /**
-   * Current step in the checkout funnel (e.g., 2 or "shipping").
+   * Current step in the checkout funnel (e.g., "2" or "shipping").
    */
-  step: number | string;
+  step: string;
   /**
    * Custom additional properties.
    */
@@ -633,9 +633,9 @@ type UserIdentifiedPayload = {
      */
     birthday?: number;
     /**
-     * UNIX timestamp in milliseconds of account creation.
+     * UNIX timestamp in milliseconds of user registration.
      */
-    createdAt?: number;
+    registeredAt?: number;
     /**
      * User's physical address details.
      */
@@ -1733,9 +1733,9 @@ type ChallengeStepCompletedPayload = {
    */
   challenge: Challenge;
   /**
-   * The identifier or index of the step completed.
+   * The identifier of the step completed.
    */
-  step: string | number;
+  step: string;
   /**
    * Custom additional properties.
    */

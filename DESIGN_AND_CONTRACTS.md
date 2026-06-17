@@ -25,7 +25,7 @@ extensibility.
 
 ## II. Component Architecture
 
-The SDK uses four primary, single-responsibility components:
+The SDK uses five primary, single-responsibility components:
 
 | Component           | Design Pattern            | Primary Responsibilities                                                                                       |
 | :------------------ | :------------------------ | :------------------------------------------------------------------------------------------------------------- |
@@ -33,25 +33,38 @@ The SDK uses four primary, single-responsibility components:
 | **MetadataManager** | **Repository**            | Stores and retrieves global metadata. Provides thread-safe metadata snapshots for events.                      |
 | **Dispatcher**      | **Command Queue**         | Manages event buffer, batch processing, **atomic flush operations**, and retry logic with exponential backoff. |
 | **Mutex**           | **Mutual Exclusion Lock** | Serializes concurrent operations (e.g., `flush()`) to prevent race conditions.                                 |
+| **EventsNamespace** | **Namespace/Facade**      | Provides typed convenience methods for all predefined CDP events (e.g., `client.events.productViewed(...)`).   |
 
 ### Adapter Interfaces
 
 All custom functionality is abstracted via interfaces:
 
-- **`HttpAdapter`**: Handles API communication. Sends POST request with
-  `X-API-Key: {apiKey}` (or any other custom name) header. Must return an
-  `HttpResponse`.
+- **`HttpAdapter`**: Handles API communication. Receives a single
+  `HttpAdapterContext` parameter containing endpoint, events, headers, and
+  apiKeyHeader. Must return an `HttpResponse`. The adapter is optional; a
+  built-in `HttpClient` is used by default.
 - **`StorageAdapter`**: Handles event persistence on failure or initialization.
-  Methods (`save()`, `load()`, `clear()`, `close()`) must be **idempotent** and
-  handle errors gracefully. **Throws `StorageQuotaExceededError`** when storage
-  quota is exceeded and events are dropped (after successfully saving reduced
-  data). The `close()` method is called during disposal to release resources
-  (e.g., close database connections, file handles).
+  Methods (`init()`, `save()`, `load()`, `clear()`, `close()`) must be
+  **idempotent** and handle errors gracefully. The `init()` method is called
+  during client initialization to set up storage resources. **Throws
+  `StorageQuotaExceededError`** when storage quota is exceeded and events are
+  dropped (after successfully saving reduced data). The `close()` method is
+  called during dispatcher disposal to release resources (e.g., close database
+  connections, file handles).
 - **`LoggerAdapter`**: Handles SDK internal logging with configurable log levels
   (`DEBUG`, `INFO`, `WARN`, `ERROR`, `NONE`). Built-in implementations include
   `ConsoleLoggerAdapter` and `NoOpLoggerAdapter`.
-- **`SessionManager`** (Runtime-Specific): Generates and persists the unique
-  session ID (`{timestamp}-{random}`).
+
+### HttpAdapterContext
+
+The `HttpAdapter.send()` method receives a single context object:
+
+| Field          | Type                     | Description                           |
+| :------------- | :----------------------- | :------------------------------------ |
+| `endpoint`     | `string`                 | The API endpoint URL.                 |
+| `events`       | `Event[]`                | Array of events to send.              |
+| `headers`      | `Record<string, string>` | Headers to include in the request.    |
+| `apiKeyHeader` | `string`                 | The header name used for the API key. |
 
 ---
 
@@ -99,32 +112,62 @@ await client.track("user.login", {
 
 ### 1. `Config` (Initialization)
 
-| Field            | Type                        | Constraint/Default                                                                                                                            |
-| :--------------- | :-------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------- |
-| `apiKey`         | `string`                    | **Required:** API authentication key.                                                                                                         |
-| `endpoint`       | `string`                    | **Required:** Valid HTTPS URL.                                                                                                                |
-| `apiKeyHeader?`  | `string`                    | **Optional:** Header name for API key **(Default: "X-API-Key")**                                                                              |
-| `flushInterval?` | `number`                    | **Optional:** Auto-flush interval in ms. **(Default: 5000)**.                                                                                 |
-| `maxBatchSize?`  | `number`                    | **Optional:** Max events per batch. **(Default: 10)**. Triggers immediate flush when reached.                                                 |
-| `maxBufferSize?` | `number`                    | **Optional:** Max events in memory/storage. **(Default: unlimited)**. Drops oldest events (FIFO) when exceeded.                               |
-| `maxRetries?`    | `number`                    | **Optional:** Max retry attempts. **(Default: 3)**.                                                                                           |
-| `httpAdapter`    | `HttpAdapter`               | **Required:** Custom HTTP adapter for API requests.                                                                                           |
-| `storageAdapter` | `StorageAdapter`            | **Required:** Custom storage adapter for persistence.                                                                                         |
-| `loggerAdapter?` | `LoggerAdapter`             | **Optional:** Custom logger adapter for SDK internal logging. **(Default: ConsoleLoggerAdapter with WARN level)**                             |
-| `eventSampler?`  | `(event: Event) => boolean` | **Optional:** Synchronous function called after event construction. Return `true` to enqueue, `false` to drop. **(Default: all events pass)** |
+| Field               | Type                        | Constraint/Default                                                                                                                            |
+| :------------------ | :-------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apiKey`            | `string`                    | **Required:** API authentication key.                                                                                                         |
+| `endpoint`          | `string`                    | **Required:** Valid HTTPS URL.                                                                                                                |
+| `apiKeyHeader?`     | `string`                    | **Optional:** Header name for API key. **(Default: "X-API-Key")**                                                                             |
+| `batchOptions?`     | `BatchOptions`              | **Optional:** Batching configuration (see below).                                                                                             |
+| `retryOptions?`     | `RetryOptions`              | **Optional:** Retry configuration (see below).                                                                                                |
+| `maxBufferSize?`    | `number`                    | **Optional:** Max events in memory/storage. **(Default: 50)**. Drops oldest events (FIFO) when exceeded.                                      |
+| `eventTtl?`         | `number`                    | **Optional:** Per-event time-to-live in ms. Events older than this are dropped at flush time.                                                 |
+| `httpAdapter?`      | `HttpAdapter`               | **Optional:** Custom HTTP adapter for API requests. **(Default: built-in HttpClient)**                                                        |
+| `storageAdapter`    | `StorageAdapter`            | **Required:** Custom storage adapter for persistence.                                                                                         |
+| `loggerAdapter?`    | `LoggerAdapter`             | **Optional:** Custom logger adapter for SDK internal logging. **(Default: ConsoleLoggerAdapter with WARN level)**                             |
+| `eventSampler?`     | `(event: Event) => boolean` | **Optional:** Synchronous function called after event construction. Return `true` to enqueue, `false` to drop. **(Default: all events pass)** |
+| `hooks?`            | `TelemetryHooks`            | **Optional:** Lifecycle hooks for observability (see TelemetryHooks section).                                                                 |
+| `telemetryOptions?` | `TelemetryOptions`          | **Optional:** Configuration for automatic SDK metric reporting (see TelemetryOptions section).                                                |
+
+#### BatchOptions
+
+| Field             | Type     | Constraint/Default                                                                            |
+| :---------------- | :------- | :-------------------------------------------------------------------------------------------- |
+| `interval?`       | `number` | **Optional:** Auto-flush interval in ms. **(Default: 10000)**                                 |
+| `size?`           | `number` | **Optional:** Max events per batch. **(Default: 10)**. Triggers immediate flush when reached. |
+| `maxPayloadSize?` | `number` | **Optional:** Max payload size in bytes per batch. **(Default: 65536 / 64KB)**                |
+
+#### RetryOptions
+
+| Field            | Type     | Constraint/Default                                                        |
+| :--------------- | :------- | :------------------------------------------------------------------------ |
+| `maxAttempts?`   | `number` | **Optional:** Max retry attempts. **(Default: 3)**                        |
+| `minDelay?`      | `number` | **Optional:** Minimum delay in ms before first retry. **(Default: 1000)** |
+| `maxDelay?`      | `number` | **Optional:** Maximum delay cap in ms. **(Default: 360000)**              |
+| `backoffFactor?` | `number` | **Optional:** Exponential backoff multiplier. **(Default: 2)**            |
 
 ### 2. `Event` (API Payload)
 
 The structure must be JSON-serializable.
 
-| Field       | Type                 | Description                                                 |
-| :---------- | :------------------- | :---------------------------------------------------------- |
-| `name`      | `string`             | Event identifier.                                           |
-| `payload`   | `Map` or `null`      | Event data.                                                 |
-| `issuedAt`  | `number`             | Unix timestamp in milliseconds.                             |
-| `sessionId` | `string` or `null`   | Session identifier (browser/native only).                   |
-| `metadata`  | `Map` or `null`      | Event/environment-specific metadata (e.g., schema version). |
-| `platform`  | `Platform` or `null` | Platform information (auto-detected by runtime).            |
+| Field           | Type                           | Description                                           |
+| :-------------- | :----------------------------- | :---------------------------------------------------- |
+| `name`          | `string`                       | Event identifier.                                     |
+| `payload`       | `Map` or `null`                | Event data.                                           |
+| `issuedAt`      | `number`                       | Unix timestamp in milliseconds.                       |
+| `eventId`       | `string`                       | Unique event identifier (UUID).                       |
+| `anonymousId`   | `string`                       | Anonymous identifier for the session/device.          |
+| `userId`        | `string` or `null`             | Authenticated user identifier (set via `identify()`). |
+| `schemaVersion` | `string` or `null`             | Schema version for the event payload.                 |
+| `metadata`      | `Partial<TMetadata>` or `null` | Global metadata snapshot at event creation time.      |
+| `sdk`           | `SdkInfo`                      | SDK information (name and version).                   |
+| `platform`      | `Platform` or `null`           | Platform information (auto-detected by runtime).      |
+
+#### SdkInfo
+
+| Field     | Type     | Description                                            |
+| :-------- | :------- | :----------------------------------------------------- |
+| `name`    | `string` | SDK package name (e.g., `"@tapsioss/ripple-browser"`). |
+| `version` | `string` | SDK version string.                                    |
 
 #### Platform (Discriminated Union)
 
@@ -154,15 +197,21 @@ The structure must be JSON-serializable.
 
 ## V. Public API Contract
 
-| Method               | Signature                                                                | Description/Behavior                                                                                                                                                                            |
-| :------------------- | :----------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **`init()`**         | `() -> void` (or `Future/Promise`)                                       | Restores persisted events (applying `maxBufferSize` limit) and starts scheduled flush. Events tracked before initialization are automatically queued and processed after `init()` completes.    |
-| **`track()`**        | `(name: K, payload?: TEvents[K], metadata?: Partial<TMetadata>) -> void` | Creates an enriched `Event` and enqueues it. **Type-safe** event names and payloads. Triggers **auto-flush** if `maxBatchSize` is reached. **Operations are queued if called before `init()`**. |
-| **`setMetadata()`**  | `(key: K, value: TMetadata[K]) -> void`                                  | Stores **type-safe** metadata for all subsequent events.                                                                                                                                        |
-| **`getMetadata()`**  | `() -> Partial<TMetadata>`                                               | **Returns all stored metadata** as a shallow copy. Returns empty object if no metadata is set.                                                                                                  |
-| **`getSessionId()`** | `() -> string \| null`                                                   | **Returns current session ID** or `null` if not set. Session ID is auto-generated in browser environments.                                                                                      |
-| **`flush()`**        | `() -> void` (or `Future/Promise`)                                       | **Manually sends all queued events immediately**. **Mutex-protected**.                                                                                                                          |
-| **`dispose()`**      | `() -> void`                                                             | **Cleans up resources and frees memory** (cancels timers, clears buffers, releases locks, resets state). **Supports re-initialization** after disposal.                                         |
+| Method                 | Signature                                                         | Description/Behavior                                                                                                                                                                                                                                      |
+| :--------------------- | :---------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`init()`**           | `() -> void` (or `Future/Promise`)                                | Restores persisted events (applying `maxBufferSize` limit), calls `storageAdapter.init()`, and starts scheduled flush. Events tracked before initialization are automatically queued and processed after `init()` completes.                              |
+| **`track()`**          | `(name: K, payload?: TEvents[K], schemaVersion?: string) -> void` | Creates an enriched `Event` and enqueues it. **Type-safe** event names and payloads. Metadata comes from MetadataManager (not per-event). Triggers **auto-flush** if `batchOptions.size` is reached. **Operations are queued if called before `init()`**. |
+| **`setMetadata()`**    | `(key: K, value: TMetadata[K]) -> void`                           | Stores a **type-safe** metadata key-value pair for all subsequent events.                                                                                                                                                                                 |
+| **`getMetadata()`**    | `() -> Partial<TMetadata> \| null`                                | **Returns all stored metadata** as a shallow copy. Returns `null` if no metadata is set.                                                                                                                                                                  |
+| **`identify()`**       | `(userId: string, traits: UserTraits) -> void`                    | Associates a user ID with the client and tracks a `user_identified` event with the provided traits.                                                                                                                                                       |
+| **`getAnonymousId()`** | `() -> string`                                                    | **Returns the anonymous ID** for the current session. Auto-generated; browser persists via sessionStorage.                                                                                                                                                |
+| **`getUserId()`**      | `() -> string \| null`                                            | **Returns the current user ID** or `null` if not identified.                                                                                                                                                                                              |
+| **`clicked()`**        | `(payload: ClickedPayload) -> void`                               | Convenience method for click tracking.                                                                                                                                                                                                                    |
+| **`viewed()`**         | `(payload: ViewedPayload) -> void`                                | Convenience method for view tracking.                                                                                                                                                                                                                     |
+| **`screen()`**         | Platform-specific                                                 | Browser: `(payload?: Partial<ScreenPayload>) -> void` (auto-captures from document/location). Node: `(payload: ScreenPayload) -> void` (required).                                                                                                        |
+| **`flush()`**          | `() -> void` (or `Future/Promise`)                                | **Manually sends all queued events immediately**. **Mutex-protected**. Events with expired `eventTtl` are dropped.                                                                                                                                        |
+| **`dispose()`**        | `() -> void`                                                      | **Cleans up resources and frees memory** (cancels timers, clears buffers, releases locks, resets state). **Supports re-initialization** after disposal.                                                                                                   |
+| **`events`**           | `EventsNamespace`                                                 | Typed namespace providing convenience methods for all predefined CDP events (e.g., `client.events.productViewed(payload)`).                                                                                                                               |
 
 ---
 
@@ -189,10 +238,13 @@ Retries are implemented with **exponential backoff and jitter**.
 
 The backoff delay calculation is:
 
-$$\text{delay} = (\text{baseDelay} \cdot 2^{\text{attempt}}) + \text{jitter}$$
+$$\text{delay} = \min(\text{minDelay} \cdot \text{backoffFactor}^{\text{attempt}},\ \text{maxDelay}) + \text{jitter}$$
 
-Where $\text{baseDelay}$ is $1000\text{ms}$ and $\text{jitter}$ is random
-($0-1000\text{ms}$).
+Where `minDelay` defaults to `1000ms` (configurable via
+`retryOptions.minDelay`), `backoffFactor` defaults to `2` (configurable via
+`retryOptions.backoffFactor`), `maxDelay` defaults to `360000ms` (configurable
+via `retryOptions.maxDelay`), and `jitter` is a random value to prevent
+thundering herd.
 
 ### C. Concurrency
 
@@ -207,6 +259,16 @@ Where $\text{baseDelay}$ is $1000\text{ms}$ and $\text{jitter}$ is random
   after initialization completes.
 - **`init()` can be called multiple times** but only initializes once
   (subsequent calls are no-ops).
+- **`init()` calls `storageAdapter.init()`** to set up storage resources before
+  restoring persisted events.
+- **`anonymousId` is generated by the client** on first use. In browser
+  environments, it is persisted via sessionStorage through an IdentityManager.
+- **`httpAdapter` is optional** and defaults to a built-in `HttpClient` if not
+  provided.
+- **`maxBufferSize` defaults to 50** events. Drops oldest events (FIFO) when
+  exceeded.
+- **`eventTtl`** (optional): When set, events older than the specified
+  milliseconds are dropped at flush time before sending.
 - Platform information is automatically detected during event creation.
 - Metadata and payload are optional for all events.
 - **Logger adapter** defaults to `ConsoleLoggerAdapter` with `WARN` level if not
@@ -214,10 +276,33 @@ Where $\text{baseDelay}$ is $1000\text{ms}$ and $\text{jitter}$ is random
 - **Type safety** is enforced at compile-time when using generic type
   parameters.
 - **`dispose()` provides complete memory cleanup**: clears event buffers,
-  cancels scheduled flushes, releases mutex locks, closes storage adapter, and
-  resets all internal state.
+  cancels scheduled flushes, releases mutex locks, and resets all internal
+  state. Storage `close()` is called via dispatcher disposal.
 - **Re-initialization after disposal**: After calling `dispose()`, you can call
   `init()` again to restart the client with a clean state.
+
+### E. Telemetry Hooks
+
+The SDK provides lifecycle hooks for observability via the `hooks` config
+option:
+
+| Hook            | Payload                         | Triggered When                              |
+| :-------------- | :------------------------------ | :------------------------------------------ |
+| `onFlush`       | `{ eventCount, batchCount }`    | A flush operation begins.                   |
+| `onSendSuccess` | `{ batchSize, status }`         | A batch is sent successfully (2xx).         |
+| `onSendFailure` | `{ batchSize, error, attempt }` | A batch send attempt fails.                 |
+| `onRetry`       | `{ attempt, delay }`            | A retry is about to be attempted.           |
+| `onDrop`        | `{ eventCount, reason }`        | Events are dropped (4xx, expired TTL, etc). |
+| `onEnqueue`     | `{ bufferSize }`                | An event is added to the buffer.            |
+
+### F. Telemetry Options
+
+The `telemetryOptions` config enables automatic SDK metric reporting:
+
+| Field       | Type      | Description                                 |
+| :---------- | :-------- | :------------------------------------------ |
+| `disabled?` | `boolean` | Disable automatic telemetry reporting.      |
+| `endpoint`  | `string`  | Endpoint for sending SDK telemetry metrics. |
 
 ---
 
@@ -239,6 +324,8 @@ sequenceDiagram
         Client-->>App: Return (no-op)
     else Not initialized
         Client->>Client: Acquire init lock
+        Client->>Client: Generate anonymousId (persist in browser)
+        Client->>Storage: init()
         Client->>Dispatcher: restore()
         Dispatcher->>Storage: load()
         Storage-->>Dispatcher: Persisted events (or empty)
@@ -261,15 +348,16 @@ sequenceDiagram
     participant Buffer@{ "type" : "queue" }
     participant Storage@{ "type" : "database" }
 
-    App->>Client: track(name, payload, metadata)
+    App->>Client: track(name, payload, schemaVersion)
     alt Client is disposed
         Client-->>App: Silently drop event
     else Client is active
         Client->>Client: init() (auto-initialize if needed)
         Client->>MetadataManager: getAll()
-        MetadataManager-->>Client: Shared metadata
-        Client->>Client: Merge shared + event metadata
-        Client->>Client: Create Event
+        MetadataManager-->>Client: Global metadata
+        Client->>Client: Enrich with identity (anonymousId, userId)
+        Client->>Client: Enrich with sdk info
+        Client->>Client: Create Event (metadata from MetadataManager only)
         Client->>Client: eventSampler(event)
         alt Sampler returns false
             Client-->>App: Silently drop event
@@ -279,9 +367,9 @@ sequenceDiagram
         Dispatcher->>Buffer: Add event to buffer
         Dispatcher->>Dispatcher: Apply maxBufferSize limit (FIFO eviction)
         Dispatcher->>Storage: save(events)
-        alt Buffer size >= maxBatchSize
+        alt Buffer size >= batchOptions.size
             Dispatcher->>Dispatcher: flush()
-        else Buffer size < maxBatchSize
+        else Buffer size < batchOptions.size
             Dispatcher->>Dispatcher: Schedule one-shot flush timer
         end
     end
@@ -291,8 +379,8 @@ sequenceDiagram
 
 A flush operation can be triggered:
 
-- Automatically at defined `flushInterval` schedules
-- Whenever the `maxBatchSize` is exceeded
+- Automatically at defined `batchOptions.interval` schedules
+- Whenever the `batchOptions.size` is exceeded
 - Manually via `client.flush()`
 
 ```mermaid
@@ -307,10 +395,11 @@ sequenceDiagram
     alt Buffer is empty
         Dispatcher-->>Dispatcher: Return (nothing to flush)
     else Buffer has events
+        Dispatcher->>Dispatcher: Drop events with expired eventTtl
         Dispatcher->>Buffer: Get all events and clear buffer
         Buffer-->>Dispatcher: Returns events
-        loop For each batch (up to maxBatchSize)
-            Dispatcher->>HTTP: Send batch with headers
+        loop For each batch (up to batchOptions.size)
+            Dispatcher->>HTTP: Send batch via HttpAdapterContext
             alt 2xx Success
                 Dispatcher->>Storage: clear()
             else 4xx Client Error
@@ -344,7 +433,7 @@ sequenceDiagram
             Dispatcher->>Storage: clear()
         else Still failing & attempts remaining
             Dispatcher->>Dispatcher: Retry again (increment attempt)
-        else Max retries reached
+        else Max retries reached (retryOptions.maxAttempts)
             Dispatcher->>Buffer: Re-queue failed events at front
             Dispatcher->>Dispatcher: Apply maxBufferSize limit
             Dispatcher->>Storage: save(events)
@@ -384,7 +473,7 @@ sequenceDiagram
     alt Timer exists or disposed
         Dispatcher-->>Dispatcher: Skip (no duplicate timers)
     else No active timer
-        Dispatcher->>Timer: Schedule one-shot timer (flushInterval)
+        Dispatcher->>Timer: Schedule one-shot timer (batchOptions.interval)
         Note over Timer: Timer fires once after interval
         Timer->>Timer: Clear timer reference
         Timer->>Dispatcher: flush()
@@ -400,8 +489,8 @@ sequenceDiagram
     participant Buffer@{ "type" : "queue" }
     participant Storage@{ "type" : "database" }
 
-    Dispatcher->>Dispatcher: Check maxBufferSize
-    alt maxBufferSize isn't set
+    Dispatcher->>Dispatcher: Check maxBufferSize (default: 50)
+    alt Events within maxBufferSize
         Dispatcher-->>Dispatcher: No eviction needed
     else Events exceed maxBufferSize
         Dispatcher->>Dispatcher: Keep newest N events (drop oldest)
@@ -433,10 +522,10 @@ flowchart TD
     UnexpectedErr --> DropUnexpected[Drop Events<br/>Clear Storage]
     DropUnexpected --> End
 
-    ServerErr --> RetryCheck{Attempts <<br/>MaxRetries?}
+    ServerErr --> RetryCheck{Attempts <<br/>retryOptions.maxAttempts?}
     NetworkErr --> RetryCheck
 
-    RetryCheck -->|Yes| Backoff[Calculate Backoff<br/>2^attempt + jitter]
+    RetryCheck -->|Yes| Backoff[Calculate Backoff<br/>minDelay * backoffFactor^attempt]
     RetryCheck -->|No| MaxRetry[Max Retries Reached]
 
     Backoff --> Wait[Wait for Backoff]
@@ -488,28 +577,32 @@ sequenceDiagram
 ### A. Buffer and Batch Size Relationship
 
 **Critical Rule**: `maxBufferSize` should always be **greater than or equal to**
-`maxBatchSize`.
+`batchOptions.size`.
 
 **Runtime Validation**: The SDK returns an error at initialization when
-`maxBufferSize < maxBatchSize` to help catch misconfigurations early.
+`maxBufferSize < batchOptions.size` to help catch misconfigurations early.
 
 | Configuration                                | Behavior                                                                                  | Recommendation  |
 | :------------------------------------------- | :---------------------------------------------------------------------------------------- | :-------------- |
-| `maxBatchSize: 10, maxBufferSize: 100`       | ✅ Events flush every 10, buffer can hold 100 during offline periods                      | **Recommended** |
-| `maxBatchSize: 20, maxBufferSize: 1000`      | ✅ Large buffer for extended offline periods, efficient batching                          | **Recommended** |
-| `maxBatchSize: 100, maxBufferSize: 50`       | ❌ Batch size never reached, events dropped unnecessarily, only time-based flush triggers | **Avoid**       |
-| `maxBatchSize: 50, maxBufferSize: 50`        | ⚠️ Works but no room for accumulation during brief network issues                         | **Suboptimal**  |
-| `maxBatchSize: 10, maxBufferSize: unlimited` | ✅ Unlimited buffer, events never dropped (may cause memory issues in extreme cases)      | **Default**     |
+| `batchOptions.size: 10, maxBufferSize: 100`  | ✅ Events flush every 10, buffer can hold 100 during offline periods                      | **Recommended** |
+| `batchOptions.size: 20, maxBufferSize: 1000` | ✅ Large buffer for extended offline periods, efficient batching                          | **Recommended** |
+| `batchOptions.size: 100, maxBufferSize: 50`  | ❌ Batch size never reached, events dropped unnecessarily, only time-based flush triggers | **Avoid**       |
+| `batchOptions.size: 50, maxBufferSize: 50`   | ⚠️ Works but no room for accumulation during brief network issues                         | **Suboptimal**  |
 
 **Understanding the Parameters**:
 
-- **`maxBatchSize`**: Controls **when** events are sent (triggers immediate
+- **`batchOptions.size`**: Controls **when** events are sent (triggers immediate
   flush)
   - Determines network request frequency
   - Affects latency and throughput
   - Smaller values = more frequent requests, lower latency
 
-- **`maxBufferSize`**: Controls **how many** events are kept in memory/storage
+- **`batchOptions.maxPayloadSize`** (Default: 65536 / 64KB): Controls **maximum
+  byte size** of a single batch payload. Batches are dynamically split if they
+  exceed this size, ensuring network requests stay within acceptable limits.
+
+- **`maxBufferSize`** (Default: 50): Controls **how many** events are kept in
+  memory/storage
   - Prevents unbounded memory growth
   - Drops oldest events (FIFO) when exceeded
   - Applied before saving to storage AND when restoring from storage
@@ -517,20 +610,20 @@ sequenceDiagram
 
 **Scenarios**:
 
-1. **Normal Operation** (`maxBatchSize: 10, maxBufferSize: 100`):
+1. **Normal Operation** (`batchOptions.size: 10, maxBufferSize: 100`):
    - Events flush every 10 events
    - Buffer rarely fills (events sent frequently)
    - Optimal for real-time tracking
 
-2. **Offline Mode** (`maxBatchSize: 10, maxBufferSize: 100`):
+2. **Offline Mode** (`batchOptions.size: 10, maxBufferSize: 100`):
    - Buffer accumulates up to 100 events
    - Oldest events dropped when limit exceeded
    - Events sent when connection restored
 
-3. **Misconfigured** (`maxBatchSize: 100, maxBufferSize: 50`):
+3. **Misconfigured** (`batchOptions.size: 100, maxBufferSize: 50`):
    - Buffer hits 50 → drops to 50 → never reaches 100
    - Batch size never triggers flush
-   - Events only sent via time-based flush (`flushInterval`)
+   - Events only sent via time-based flush (`batchOptions.interval`)
    - Data loss without warning
 
 ### B. Storage Quota Handling
@@ -591,6 +684,3 @@ Storage adapters should automatically handle quota exceeded errors:
 3. **429 Rate Limit Handling**: Treat HTTP 429 (Too Many Requests) as a
    retryable error instead of a client error. Implement retry with exponential
    backoff, respect `Retry-After` header when present, and re-queue events.
-4. **Byte-based Buffer Limit**: The current `maxBufferSize` is event-count
-   based, but storage quotas are byte-based. A byte-size limit option would more
-   accurately prevent `QuotaExceededError`.

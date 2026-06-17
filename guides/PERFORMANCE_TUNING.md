@@ -8,14 +8,15 @@ resource usage.
 
 ## Key Configuration Parameters
 
-### 1. `flushInterval` vs `maxBatchSize`
+### 1. `batchOptions.interval`, `batchOptions.size`, and `batchOptions.maxPayloadSize`
 
-These two parameters work together to control when events are sent to the
-backend.
+These parameters work together to control when events are sent to the backend.
 
-#### `flushInterval`
+#### `batchOptions.interval`
 
 Time in milliseconds to wait before automatically flushing events.
+
+**Default:** 10000ms
 
 **When to increase:**
 
@@ -29,9 +30,11 @@ Time in milliseconds to wait before automatically flushing events.
 - Real-time analytics requirements
 - Critical events need immediate delivery
 
-#### `maxBatchSize`
+#### `batchOptions.size`
 
 Maximum number of events in a single batch before auto-flush.
+
+**Default:** 10
 
 **When to increase:**
 
@@ -47,6 +50,24 @@ Maximum number of events in a single batch before auto-flush.
 - Want more frequent updates
 - Network bandwidth is limited
 
+#### `batchOptions.maxPayloadSize`
+
+Maximum accumulated payload size in bytes before auto-flush is triggered.
+
+**Default:** 65536 (64KB)
+
+**When to increase:**
+
+- Events are large and backend supports bigger payloads
+- Want fewer HTTP requests at the cost of larger individual requests
+- Network bandwidth is not a concern
+
+**When to decrease:**
+
+- Backend has strict payload size limits
+- Network bandwidth is limited
+- Mobile or constrained environments
+
 #### Tradeoffs
 
 | Configuration              | Latency | Network Efficiency | Memory Usage | Backend Load |
@@ -61,34 +82,56 @@ Maximum number of events in a single batch before auto-flush.
 **Real-time Analytics:**
 
 ```
-flushInterval: 5000ms
-maxBatchSize: 30
+batchOptions: { interval: 5000, size: 30, maxPayloadSize: 65536 }
+retryOptions: { maxAttempts: 3, minDelay: 1000, maxDelay: 360000, backoffFactor: 2 }
 ```
 
 **High Volume Production:**
 
 ```
-flushInterval: 10000ms
-maxBatchSize: 100
+batchOptions: { interval: 10000, size: 100, maxPayloadSize: 131072 }
+retryOptions: { maxAttempts: 5, minDelay: 1000, maxDelay: 360000, backoffFactor: 2 }
 ```
 
 **Low Volume / Background:**
 
 ```
-flushInterval: 30000ms
-maxBatchSize: 50
+batchOptions: { interval: 30000, size: 50, maxPayloadSize: 65536 }
+retryOptions: { maxAttempts: 3, minDelay: 2000, maxDelay: 360000, backoffFactor: 2 }
 ```
 
 **Mobile / Constrained:**
 
 ```
-flushInterval: 15000ms
-maxBatchSize: 20
+batchOptions: { interval: 15000, size: 20, maxPayloadSize: 32768 }
+retryOptions: { maxAttempts: 3, minDelay: 1000, maxDelay: 360000, backoffFactor: 2 }
 ```
 
 ---
 
-### 2. Storage Adapter Selection
+### 2. `eventTtl` (Event Time-to-Live)
+
+Time in milliseconds after which events are considered stale and dropped at
+flush time. The age is calculated from the event's `issuedAt` timestamp.
+
+**Default:** undefined (no TTL, events never expire)
+
+**When to use:**
+
+- Application may go offline for extended periods
+- Stale events have no analytical value
+- Want to prevent sending outdated data after reconnection
+- Storage is limited and old events should be discarded
+
+**Recommended values:**
+
+- Real-time analytics: `eventTtl: 300000` (5 minutes)
+- Standard applications: `eventTtl: 3600000` (1 hour)
+- Offline-tolerant: `eventTtl: 86400000` (24 hours)
+
+---
+
+### 3. Storage Adapter Selection
 
 Choose the right storage adapter based on your environment and requirements.
 
@@ -142,11 +185,28 @@ Choose the right storage adapter based on your environment and requirements.
 
 ---
 
-### 3. `maxBufferSize` Sizing
+### 4. `maxBufferSize` Sizing
 
 Maximum number of events to keep in memory and storage.
 
-**Typical default: 1000 events**
+**Default: 50 events**
+
+> **Important:** All event rate estimates in this section refer to the rate at a
+> **single SDK instance** level — i.e., one user session in one browser tab, one
+> mobile app instance, or one Node.js process. Do **not** use your aggregate
+> platform traffic (total events across all users) to size `maxBufferSize`. Each
+> SDK instance manages its own independent buffer.
+
+#### Typical Event Rates Per SDK Instance
+
+| Environment                       | Typical rate (events/min) | Description                                      |
+| :-------------------------------- | :------------------------ | :----------------------------------------------- |
+| Browser (normal browsing)         | 1–10                      | Page views, clicks, occasional purchases         |
+| Browser (active interaction)      | 10–50                     | E-commerce power user, frequent searches/filters |
+| Browser (high-frequency tracking) | 50–500                    | Scroll/gesture tracking, real-time dashboards    |
+| Mobile app                        | 1–30                      | Screen views, taps, lifecycle events             |
+| Server (per-process)              | 100–10,000+               | API gateway tracking on behalf of many users     |
+| Server (event aggregator)         | 10,000–100,000+           | Centralized tracking service, batch ingestion    |
 
 #### Calculation Formula
 
@@ -154,41 +214,24 @@ Maximum number of events to keep in memory and storage.
 maxBufferSize = (expected_events_per_hour / flushes_per_hour) * safety_factor
 ```
 
-**Example:**
+Where `flushes_per_hour = 3600000 / batchOptions.interval` and all rates are
+**per SDK instance**.
 
-- 10,000 events/hour
-- Flush every 10 seconds = 360 flushes/hour
-- Events per flush = 10,000 / 360 ≈ 28
-- With 3x safety factor = 28 \* 3 = 84
-- Recommended: `maxBufferSize: 100`
+**Example (Browser — active user):**
 
-#### Sizing Guidelines
+- 30 events/min per session → 1,800 events/hour
+- `batchOptions.interval: 10000` → 360 flushes/hour
+- Events per flush = 1,800 / 360 = 5
+- With 3x safety factor = 5 \* 3 = 15
+- Recommended: `maxBufferSize: 50` (default is sufficient)
 
-**Low Volume (<1000 events/hour):**
+**Example (Server — high-throughput process):**
 
-```
-maxBufferSize: 500
-```
-
-**Medium Volume (1000-10000 events/hour):**
-
-```
-maxBufferSize: 1000
-```
-
-**High Volume (>10000 events/hour):**
-
-```
-maxBufferSize: 5000
-```
-
-**Memory Constrained:**
-
-```
-maxBufferSize: 200
-maxBatchSize: 20
-flushInterval: 5000 (flush more frequently)
-```
+- 10,000 events/min per process → 600,000 events/hour
+- `batchOptions.interval: 5000` → 720 flushes/hour
+- Events per flush = 600,000 / 720 ≈ 833
+- With 3x safety factor = 833 \* 3 ≈ 2,500
+- Recommended: `maxBufferSize: 3000`
 
 #### Memory Impact
 
@@ -204,7 +247,7 @@ $$\text{memoryUsage} = \text{maxBufferSize} * \text{averageEventSize}$$
 
 #### Validation
 
-The SDK validates that `maxBufferSize >= maxBatchSize` to ensure proper
+The SDK validates that `maxBufferSize >= batchOptions.size` to ensure proper
 operation.
 
 ---
@@ -275,65 +318,6 @@ Track:
 
 ---
 
-## Environment-Specific Recommendations
-
-### Browser (SPA)
-
-```
-flushInterval: 10000ms
-maxBatchSize: 50
-maxBufferSize: 500
-Storage: Persistent (LocalStorage/IndexedDB)
-```
-
-### Browser (High Traffic)
-
-```
-flushInterval: 5000ms
-maxBatchSize: 100
-maxBufferSize: 2000
-Storage: Persistent (IndexedDB for capacity)
-```
-
-### Mobile (iOS/Android)
-
-```
-flushInterval: 15000ms
-maxBatchSize: 30
-maxBufferSize: 500
-Storage: Platform persistent storage
-```
-
-### Server (API/Web Server)
-
-```
-flushInterval: 10000ms
-maxBatchSize: 100
-maxBufferSize: 1000
-Storage: No-op (stateless) or File-based
-```
-
-### Server (Background Worker)
-
-```
-flushInterval: 30000ms
-maxBatchSize: 200
-maxBufferSize: 5000
-Storage: File-based or Database
-```
-
-### Serverless / Lambda
-
-```
-flushInterval: 1000ms (flush quickly before function ends)
-maxBatchSize: 20
-maxBufferSize: 100
-Storage: No-op
-Always flush before function ends
-```
-
----
-
 ## Troubleshooting Performance Issues
 
 ### High Memory Usage
@@ -341,8 +325,8 @@ Always flush before function ends
 **Solutions:**
 
 - Reduce `maxBufferSize`
-- Reduce `maxBatchSize`
-- Increase `flushInterval` (flush more often)
+- Reduce `batchOptions.size`
+- Decrease `batchOptions.interval` (flush more often)
 - Use no-op storage
 - Implement event sampling
 
@@ -350,8 +334,9 @@ Always flush before function ends
 
 **Solutions:**
 
-- Increase `flushInterval` (batch more)
-- Increase `maxBatchSize`
+- Increase `batchOptions.interval` (batch more)
+- Increase `batchOptions.size`
+- Increase `batchOptions.maxPayloadSize`
 - Reduce event volume
 - Optimize payload size
 - Implement sampling
@@ -360,8 +345,8 @@ Always flush before function ends
 
 **Solutions:**
 
-- Decrease `flushInterval`
-- Decrease `maxBatchSize`
+- Decrease `batchOptions.interval`
+- Decrease `batchOptions.size`
 - Use faster storage adapter
 - Optimize network path
 - Use CDN or edge locations
@@ -371,47 +356,15 @@ Always flush before function ends
 **Solutions:**
 
 - Increase `maxBufferSize`
-- Decrease `flushInterval`
+- Decrease `batchOptions.interval`
 - Check storage availability
 - Monitor network connectivity
-- Implement retry logic
+- Review `eventTtl` setting (events may be expiring)
+- Check `retryOptions.maxAttempts` is sufficient
 
 ---
 
 ## Performance Testing
-
-### Load Testing
-
-Test SDK under various conditions:
-
-- High event volume (1000+ events/second)
-- Network latency simulation
-- Storage quota limits
-- Memory constraints
-- Extended offline periods
-
-### Benchmarking
-
-Measure:
-
-- Event tracking latency
-- Flush operation duration
-- Storage operation speed
-- Memory footprint
-- Network bandwidth usage
-
-### Profiling
-
-Profile your application to identify:
-
-- SDK overhead
-- Bottlenecks in event tracking
-- Storage performance issues
-- Network request patterns
-
----
-
-**Related Documentation:**
 
 ### Load Testing
 

@@ -34,7 +34,7 @@ operations fail due to quota limits.
 
 **Use No-Persistence Mode:**
 
-- Configure SDK to use no-op storage adapter
+- Configure SDK without a `storageAdapter`
 - Increase flush frequency to compensate for lack of persistence
 - Accept potential data loss on crashes
 
@@ -42,19 +42,20 @@ operations fail due to quota limits.
 
 - Create custom storage adapter with cleanup logic
 - Remove old events periodically
-- Implement TTL (time-to-live) for stored events
+- Use `eventTtl` to automatically drop stale events at flush time
 
 **Adjust Configuration:**
 
-- Reduce `maxBufferSize` to limit storage usage
-- Increase flush frequency
-- Reduce batch size
+- Reduce `maxBufferSize` to limit storage usage (default: 50)
+- Increase flush frequency via `batchOptions.interval`
+- Reduce batch size via `batchOptions.size`
 
 #### Prevention
 
 - Monitor storage usage proactively
 - Implement storage cleanup policies
-- Use appropriate `maxBufferSize` limits
+- Use appropriate `maxBufferSize` limits (default: 50)
+- Configure `eventTtl` to prevent unbounded accumulation of stale events
 - Flush events more frequently in constrained environments
 
 ---
@@ -66,7 +67,7 @@ operations fail due to quota limits.
 When network is unavailable:
 
 1. Events are queued in memory and persisted to storage
-2. SDK respects `maxBufferSize` limit
+2. SDK respects `maxBufferSize` limit (default: 50)
 3. Oldest events are dropped (FIFO) when limit is reached
 4. Automatic retry with exponential backoff when network returns
 
@@ -95,6 +96,11 @@ trigger flush when network is restored.
 **Critical Events Priority:** For critical events, flush immediately rather than
 batching.
 
+**Use `eventTtl` to Manage Staleness:** When events have been persisted for too
+long during outages, `eventTtl` ensures stale events are automatically dropped
+at flush time rather than being sent with outdated data. This prevents sending
+irrelevant historical events after prolonged offline periods.
+
 **Graceful Degradation:**
 
 - Reduce event volume during network issues
@@ -104,6 +110,7 @@ batching.
 #### Prevention
 
 - Set appropriate `maxBufferSize` for your use case
+- Configure `eventTtl` to limit maximum event age
 - Implement network monitoring
 - Test offline scenarios during development
 - Consider event priority systems for critical data
@@ -116,9 +123,9 @@ batching.
 
 When the backend server is unavailable:
 
-1. SDK retries with exponential backoff (typically 3 retries)
+1. SDK retries with exponential backoff (default: 3 attempts, backoff factor 2)
 2. Events are persisted to storage between retries
-3. After max retries, events remain in storage
+3. After `retryOptions.maxAttempts` exhausted, events remain in storage
 4. Events are restored and retried on next application start
 
 #### Detection
@@ -131,8 +138,8 @@ Monitor HTTP adapter responses and SDK error logs for:
 
 #### Recovery Strategies
 
-**Increase Retry Attempts:** Configure SDK with more retries for extended
-outages.
+**Increase Retry Attempts:** Configure SDK with higher
+`retryOptions.maxAttempts` for extended outages.
 
 **Implement Fallback Endpoint:** Create custom HTTP adapter that tries multiple
 endpoints:
@@ -146,6 +153,11 @@ endpoints:
 1. Initialize SDK (restores persisted events)
 2. Manually trigger flush
 3. Monitor success rate
+
+**Use `eventTtl` to Drop Stale Events:** If the server was down for an extended
+period, events persisted during the outage may be outdated. Configure `eventTtl`
+so that events older than the TTL threshold are automatically dropped at flush
+time rather than being sent with stale data.
 
 **Health Check Integration:**
 
@@ -175,15 +187,17 @@ Implement custom logger to track:
 - Network errors
 - Retry attempts
 
-Send metrics to monitoring systems and set up alerts for anomalies.
+Use `telemetryOptions` and `TelemetryHooks` (onFlush, onSendSuccess,
+onSendFailure, onRetry, onDrop, onEnqueue) to feed metrics into monitoring
+systems and set up alerts for anomalies.
 
 ### 2. Graceful Degradation
 
 Reduce functionality under stress:
 
 - Switch to no-op storage when quota exceeded
-- Increase flush frequency when storage is limited
-- Reduce batch size when memory is constrained
+- Decrease `batchOptions.interval` when storage is limited
+- Reduce `batchOptions.size` when memory is constrained
 - Sample events when volume is too high
 
 ### 3. Testing Failure Scenarios
@@ -208,7 +222,7 @@ Create test adapters that simulate failures to verify recovery behavior.
 
 **Platform-Specific:**
 
-- **Browser**: Use `beforeunload` event
+- **Browser**: Use `beforeunload` event (or `appClosed()` convenience method)
 - **Mobile**: Use app lifecycle events (onPause, onStop)
 - **Server**: Handle SIGTERM/SIGINT signals
 
@@ -236,36 +250,40 @@ When disaster strikes:
 
 ```
 maxBufferSize: 5000
-maxRetries: 10
-flushInterval: 5000 (flush frequently)
-Storage: Persistent adapter
+retryOptions: { maxAttempts: 10, minDelay: 1000, maxDelay: 360000, backoffFactor: 2 }
+batchOptions: { interval: 5000, size: 10 }
+eventTtl: 86400000 (24 hours - keep events relevant for a full day)
+# Use a persistent storageAdapter (e.g., IndexedDB, file-based)
 ```
 
 ### Resource Constrained (Limited storage/memory)
 
 ```
 maxBufferSize: 200
-maxRetries: 3
-flushInterval: 5000 (flush frequently)
-Storage: No-op adapter
+retryOptions: { maxAttempts: 3 }
+batchOptions: { interval: 5000, size: 10 }
+eventTtl: 3600000 (1 hour - drop stale events quickly)
+# Omit storageAdapter for no-persistence mode
 ```
 
 ### Unreliable Network
 
 ```
 maxBufferSize: 2000
-maxRetries: 5
-flushInterval: 15000 (batch more)
-Storage: Persistent adapter
+retryOptions: { maxAttempts: 5, minDelay: 2000, backoffFactor: 2 }
+batchOptions: { interval: 15000, size: 20 }
+eventTtl: 43200000 (12 hours - balance freshness vs. recovery window)
+# Use a persistent storageAdapter
 ```
 
 ### High Volume
 
 ```
 maxBufferSize: 10000
-maxRetries: 3
-flushInterval: 10000
-Storage: Persistent adapter with cleanup
+retryOptions: { maxAttempts: 3 }
+batchOptions: { interval: 10000, size: 50, maxPayloadSize: 65536 }
+eventTtl: 7200000 (2 hours - prevent stale event buildup)
+# Use a persistent storageAdapter with cleanup
 ```
 
 ---

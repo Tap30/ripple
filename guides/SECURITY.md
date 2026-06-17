@@ -64,8 +64,18 @@ Benefits:
 
 #### Custom API Key Headers
 
-Configure the SDK to use custom header names if your backend supports them for
-additional security.
+The `apiKeyHeader` config option controls which HTTP header name is used to send
+the API key (default: `"X-API-Key"`). This value is passed to adapters via
+`HttpAdapterContext.apiKeyHeader`, so custom `HttpAdapter` implementations
+receive it as part of the request context:
+
+```ts
+send(context: HttpAdapterContext): Promise<HttpResponse>
+// HttpAdapterContext = { endpoint, events, headers, apiKeyHeader }
+```
+
+Configure a custom header name if your backend requires it for additional
+security or to comply with infrastructure conventions.
 
 #### Network Security
 
@@ -172,19 +182,6 @@ Validate data at the application level before tracking:
 3. **Use framework protections** - Leverage built-in XSS protections
 4. **Implement CSP** - Add Content Security Policy headers
 5. **Regular security audits** - Review dashboard code for XSS vulnerabilities
-
-### Summary
-
-The SDK's role is to reliably transmit event data. XSS prevention is the
-responsibility of the systems that display this data. Always sanitize and encode
-data before rendering it in user interfaces.
-
----
-
-**Related Documentation:** ime**- Not at collection time (preserves data
-integrity) 3. **Use framework protections** - Leverage built-in XSS
-protections 4. **Implement CSP** - Add Content Security Policy headers 5.
-**Regular security audits\*\* - Review dashboard code for XSS vulnerabilities
 
 ### Summary
 
