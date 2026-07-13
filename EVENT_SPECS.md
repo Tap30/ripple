@@ -639,28 +639,7 @@ type UserIdentifiedPayload = {
     /**
      * User's physical address details.
      */
-    address?: {
-      /**
-       * City name.
-       */
-      city?: string;
-      /**
-       * Country code or name.
-       */
-      country?: string;
-      /**
-       * State or province.
-       */
-      state?: string;
-      /**
-       * Street address.
-       */
-      street?: string;
-      /**
-       * User's timezone.
-       */
-      timezone?: string;
-    };
+    address?: Address;
   };
 };
 ```
