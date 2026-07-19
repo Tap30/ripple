@@ -214,6 +214,10 @@ type Address = {
      */
     long: number;
   };
+  /**
+   * Custom additional properties.
+   */
+  customProperties?: Record<string, Primitive>;
 };
 
 /**
@@ -223,7 +227,7 @@ type Shipping = {
   /**
    * Cost of shipping.
    */
-  price: number;
+  price: Money;
   /**
    * Shipping method name (e.g., "Standard", "Next Day").
    */
@@ -271,6 +275,10 @@ type Coupon = {
    * Internal ID of the coupon.
    */
   id?: string;
+  /**
+   * Custom additional properties.
+   */
+  customProperties?: Record<string, Primitive>;
 };
 
 /**
@@ -465,6 +473,10 @@ type Payment = {
    * The order associated with this payment.
    */
   order?: Order;
+  /**
+   * Custom additional properties.
+   */
+  customProperties?: Record<string, Primitive>;
 };
 
 /**
@@ -505,6 +517,24 @@ type Reward = {
    * The unit of the reward (e.g., "points", "dollars").
    */
   unit: string;
+};
+
+/**
+ * Represents a shopping cart.
+ */
+type Cart = {
+  /**
+   * The unique identifier for the cart.
+   */
+  cartId?: string;
+  /**
+   * The current list of products in the cart.
+   */
+  products: Product[];
+  /**
+   * Custom additional properties.
+   */
+  customProperties?: Record<string, Primitive>;
 };
 
 /**
@@ -572,6 +602,60 @@ type Referral = {
    */
   customProperties?: Record<string, Primitive>;
 };
+
+/**
+ * User profile attributes.
+ */
+type UserTraits = {
+  /**
+   * User's first name.
+   */
+  firstName?: string;
+  /**
+   * User's last name.
+   */
+  lastName?: string;
+  /**
+   * User's full name.
+   */
+  fullName?: string;
+  /**
+   * User's chosen username.
+   */
+  username?: string;
+  /**
+   * User's age.
+   */
+  age?: number;
+  /**
+   * User's email address.
+   */
+  email?: string;
+  /**
+   * User's phone number.
+   */
+  phone?: string;
+  /**
+   * User's gender.
+   */
+  gender?: "male" | "female" | "other";
+  /**
+   * UNIX timestamp in milliseconds of user's birthday.
+   */
+  birthday?: number;
+  /**
+   * UNIX timestamp in milliseconds of user registration.
+   */
+  registeredAt?: number;
+  /**
+   * User's physical address details.
+   */
+  address?: Address;
+  /**
+   * Custom additional properties.
+   */
+  customProperties?: Record<string, Primitive>;
+};
 ```
 
 ---
@@ -595,63 +679,18 @@ type UserIdentifiedPayload = {
   /**
    * User profile attributes.
    */
-  traits: {
-    /**
-     * User's first name.
-     */
-    firstName?: string;
-    /**
-     * User's last name.
-     */
-    lastName?: string;
-    /**
-     * User's full name.
-     */
-    fullName?: string;
-    /**
-     * User's chosen username.
-     */
-    username?: string;
-    /**
-     * User's age.
-     */
-    age?: number;
-    /**
-     * User's email address.
-     */
-    email?: string;
-    /**
-     * User's phone number.
-     */
-    phone?: string;
-    /**
-     * User's gender.
-     */
-    gender?: "male" | "female" | "other";
-    /**
-     * UNIX timestamp in milliseconds of user's birthday.
-     */
-    birthday?: number;
-    /**
-     * UNIX timestamp in milliseconds of user registration.
-     */
-    registeredAt?: number;
-    /**
-     * User's physical address details.
-     */
-    address?: Address;
-  };
+  traits: UserTraits;
 };
 ```
 
-#### Screen (Web & Mobile) (`screened`)
+#### Screen (`screened`)
 
 Records that a user loaded a specific web page or mobile app screen. **Nuance:**
 Trigger `screened` for _every_ page load. Trigger `product_viewed` _in addition_
 to `screened` when the page loaded is a Product Detail Page (PDP).
 
 ```typescript
-type WebScreenedPayload = {
+type ScreenPayload = {
   /**
    * The page title.
    */
@@ -678,25 +717,6 @@ type WebScreenedPayload = {
   keywords?: string[];
   /**
    * Parsed UTM campaign parameters.
-   */
-  campaign?: Campaign;
-  /**
-   * Custom additional properties.
-   */
-  customProperties?: Record<string, Primitive>;
-};
-
-type MobileScreenedPayload = {
-  /**
-   * Name of the screen (e.g., "Home", "Product Detail").
-   */
-  title: string;
-  /**
-   * The previous screen name.
-   */
-  referrer?: string;
-  /**
-   * Parsed UTM campaign parameters from a deep link.
    */
   campaign?: Campaign;
   /**
@@ -864,13 +884,32 @@ Fired when a user toggles an item in their wishlist/favorites. **Use case:**
 Wishlist additions signal high interest but low urgency.
 
 ```typescript
-type ProductWishlistPayload = {
+type ProductAddedToWishlistPayload = {
   /**
    * The unique identifier for the user's wishlist.
    */
   wishlistId?: string;
   /**
    * The UI location from where the product was added/removed.
+   */
+  referrer?: string;
+  /**
+   * The product being modified in the wishlist.
+   */
+  product: Product;
+  /**
+   * Custom additional properties.
+   */
+  customProperties?: Record<string, Primitive>;
+};
+
+type ProductRemovedFromWishlistPayload = {
+  /**
+   * The unique identifier for the user's wishlist.
+   */
+  wishlistId?: string;
+  /**
+   * The UI location from where the product was removed.
    */
   referrer?: string;
   /**
@@ -891,17 +930,36 @@ Adding to cart is the strongest signal of purchase intent. Removing indicates a
 change of mind or price sensitivity.
 
 ```typescript
-type CartModificationPayload = {
+type ProductAddedToCartPayload = {
   /**
-   * The unique identifier for the cart.
+   * The cart being modified.
    */
-  cartId?: string;
+  cart: Cart;
   /**
    * The UI location from where the modification occurred.
    */
   referrer?: string;
   /**
    * The product being added or removed.
+   */
+  product: Product;
+  /**
+   * Custom additional properties.
+   */
+  customProperties?: Record<string, Primitive>;
+};
+
+type ProductRemovedFromCartPayload = {
+  /**
+   * The cart being modified.
+   */
+  cart: Cart;
+  /**
+   * The UI location from where the modification occurred.
+   */
+  referrer?: string;
+  /**
+   * The product being removed.
    */
   product: Product;
   /**
@@ -953,13 +1011,9 @@ cart page. **Use case:** Shows users reviewing selected items.
 ```typescript
 type CartViewedPayload = {
   /**
-   * The unique identifier for the cart.
+   * The cart being viewed.
    */
-  cartId?: string;
-  /**
-   * The current list of products in the cart.
-   */
-  products: Product[];
+  cart: Cart;
   /**
    * Custom additional properties.
    */
@@ -975,13 +1029,9 @@ expires. **Use case:** Helps identify session abandonment or user frustration.
 ```typescript
 type CartEmptiedPayload = {
   /**
-   * The unique identifier for the cart.
+   * The cart being emptied.
    */
-  cartId?: string;
-  /**
-   * The list of products that were cleared.
-   */
-  products: Product[];
+  cart: Cart;
   /**
    * Custom additional properties.
    */
@@ -1015,7 +1065,18 @@ Fired as the user navigates through a multi-step checkout flow. **Use case:**
 Identifies exact abandonment points.
 
 ```typescript
-type CheckoutStepPayload = {
+type CheckoutStepViewedPayload = {
+  /**
+   * The checkout session details at this step.
+   */
+  checkout: Checkout;
+  /**
+   * Custom additional properties.
+   */
+  customProperties?: Record<string, Primitive>;
+};
+
+type CheckoutStepCompletedPayload = {
   /**
    * The checkout session details at this step.
    */
@@ -1356,9 +1417,24 @@ Fired when a user attempts to apply or removes a coupon code during checkout.
 **Use case:** Tracks intent to find a discount.
 
 ```typescript
-type CouponEnteredRemovedPayload = {
+type CouponEnteredPayload = {
   /**
    * The coupon being entered or removed.
+   */
+  coupon: Coupon;
+  /**
+   * The checkout session context.
+   */
+  checkout: Checkout;
+  /**
+   * Custom additional properties.
+   */
+  customProperties?: Record<string, Primitive>;
+};
+
+type CouponRemovedPayload = {
+  /**
+   * The coupon being removed.
    */
   coupon: Coupon;
   /**
@@ -1407,7 +1483,22 @@ Calculating the CTR of internal marketing real estate to detect "banner
 blindness."
 
 ```typescript
-type PromotionPayload = {
+type PromotionViewedPayload = {
+  /**
+   * Unique identifier for the promotion/banner.
+   */
+  promotionId: string;
+  /**
+   * Human-readable title of the promotion.
+   */
+  promotionTitle?: string;
+  /**
+   * Custom additional properties.
+   */
+  customProperties?: Record<string, Primitive>;
+};
+
+type PromotionClickedPayload = {
   /**
    * Unique identifier for the promotion/banner.
    */
@@ -1432,7 +1523,7 @@ funds. **Use case:** Differentiates between a user clicking “Pay” and the ba
 actually approving the transaction.
 
 ```typescript
-type PaymentAuthorized = {
+type PaymentAuthorizedPayload = {
   /**
    * The payment authorization details.
    */
@@ -1451,7 +1542,7 @@ funds. **Use case:** Represents actual cash flow and used to verify realized
 revenue.
 
 ```typescript
-type PaymentCaptured = {
+type PaymentCapturedPayload = {
   /**
    * The payment capture details.
    */
@@ -1471,7 +1562,7 @@ $GatewayErrorRate = payment\_failed / (payment\_authorized + payment\_failed)$
 to detect integration outages.
 
 ```typescript
-type PaymentFailed = {
+type PaymentFailedPayload = {
   /**
    * The failed payment details.
    */
@@ -1489,7 +1580,7 @@ Fired when funds are returned to the user’s payment method. **Use case:**
 Essential for calculating $NetCashFlow = payment\_captured - payment\_refunded$.
 
 ```typescript
-type PaymentRefunded = {
+type PaymentRefundedPayload = {
   /**
    * The refunded payment details.
    */
