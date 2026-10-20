@@ -795,6 +795,10 @@ type ViewedPayload = {
    */
   elementTitle?: string;
   /**
+   * Marketing campaign attribution for the event, if available.
+   */
+  campaign?: Campaign;
+  /**
    * Custom additional properties.
    */
   customProperties?: Record<string, Primitive>;
@@ -820,6 +824,10 @@ type ProductClickedPayload = {
    */
   product: Product;
   /**
+   * Marketing campaign attribution for the event, if available.
+   */
+  campaign?: Campaign;
+  /**
    * Custom additional properties.
    */
   customProperties?: Record<string, Primitive>;
@@ -838,6 +846,10 @@ type ProductViewedPayload = {
    * The product that was viewed.
    */
   product: Product;
+  /**
+   * Marketing campaign attribution for the event, if available.
+   */
+  campaign?: Campaign;
   /**
    * Custom additional properties.
    */
@@ -944,6 +956,10 @@ type ProductAddedToCartPayload = {
    */
   product: Product;
   /**
+   * Marketing campaign attribution for the event, if available.
+   */
+  campaign?: Campaign;
+  /**
    * Custom additional properties.
    */
   customProperties?: Record<string, Primitive>;
@@ -962,6 +978,10 @@ type ProductRemovedFromCartPayload = {
    * The product being removed.
    */
   product: Product;
+  /**
+   * Marketing campaign attribution for the event, if available.
+   */
+  campaign?: Campaign;
   /**
    * Custom additional properties.
    */
@@ -997,6 +1017,10 @@ type ProductReviewedPayload = {
    */
   body?: string;
   /**
+   * Marketing campaign attribution for the event, if available.
+   */
+  campaign?: Campaign;
+  /**
    * Custom additional properties.
    */
   customProperties?: Record<string, Primitive>;
@@ -1015,6 +1039,10 @@ type CartViewedPayload = {
    */
   cart: Cart;
   /**
+   * Marketing campaign attribution for the event, if available.
+   */
+  campaign?: Campaign;
+  /**
    * Custom additional properties.
    */
   customProperties?: Record<string, Primitive>;
@@ -1032,6 +1060,10 @@ type CartEmptiedPayload = {
    * The cart being emptied.
    */
   cart: Cart;
+  /**
+   * Marketing campaign attribution for the event, if available.
+   */
+  campaign?: Campaign;
   /**
    * Custom additional properties.
    */
@@ -1053,6 +1085,10 @@ type CheckoutStartedPayload = {
    */
   checkout: Checkout;
   /**
+   * Marketing campaign attribution for the event, if available.
+   */
+  campaign?: Campaign;
+  /**
    * Custom additional properties.
    */
   customProperties?: Record<string, Primitive>;
@@ -1071,6 +1107,10 @@ type CheckoutStepViewedPayload = {
    */
   checkout: Checkout;
   /**
+   * Marketing campaign attribution for the event, if available.
+   */
+  campaign?: Campaign;
+  /**
    * Custom additional properties.
    */
   customProperties?: Record<string, Primitive>;
@@ -1081,6 +1121,10 @@ type CheckoutStepCompletedPayload = {
    * The checkout session details at this step.
    */
   checkout: Checkout;
+  /**
+   * Marketing campaign attribution for the event, if available.
+   */
+  campaign?: Campaign;
   /**
    * Custom additional properties.
    */
@@ -1099,6 +1143,10 @@ type OrderCompletedPayload = {
    * The finalized order details.
    */
   order: Order;
+  /**
+   * Marketing campaign attribution for the event, if available.
+   */
+  campaign?: Campaign;
   /**
    * Custom additional properties.
    */
@@ -1144,6 +1192,10 @@ type OrderCancelledPayload = {
    * Who cancelled the order (e.g., "customer", "admin", "system").
    */
   issuer?: string;
+  /**
+   * Marketing campaign attribution for the event, if available.
+   */
+  campaign?: Campaign;
   /**
    * Custom additional properties.
    */
@@ -1253,6 +1305,10 @@ type OrderUpdatedPayload = {
    */
   reason?: string;
   /**
+   * Marketing campaign attribution for the event, if available.
+   */
+  campaign?: Campaign;
+  /**
    * Custom additional properties.
    */
   customProperties?: Record<string, Primitive>;
@@ -1319,6 +1375,10 @@ type OrderReviewedPayload = {
    */
   body?: string;
   /**
+   * Marketing campaign attribution for the event, if available.
+   */
+  campaign?: Campaign;
+  /**
    * Custom additional properties.
    */
   customProperties?: Record<string, Primitive>;
@@ -1338,6 +1398,10 @@ type ProductsSearchedPayload = {
    * The raw text query submitted by the user.
    */
   query: string;
+  /**
+   * Marketing campaign attribution for the event, if available.
+   */
+  campaign?: Campaign;
   /**
    * Custom additional properties.
    */
@@ -1368,6 +1432,10 @@ type ProductListViewedPayload = {
    * The products currently visible in the list.
    */
   products: Product[];
+  /**
+   * Marketing campaign attribution for the event, if available.
+   */
+  campaign?: Campaign;
   /**
    * Custom additional properties.
    */
@@ -1403,6 +1471,10 @@ type ProductListFilteredPayload = {
    */
   products: Product[];
   /**
+   * Marketing campaign attribution for the event, if available.
+   */
+  campaign?: Campaign;
+  /**
    * Custom additional properties.
    */
   customProperties?: Record<string, Primitive>;
@@ -1427,6 +1499,10 @@ type CouponEnteredPayload = {
    */
   checkout: Checkout;
   /**
+   * Marketing campaign attribution for the event, if available.
+   */
+  campaign?: Campaign;
+  /**
    * Custom additional properties.
    */
   customProperties?: Record<string, Primitive>;
@@ -1441,6 +1517,10 @@ type CouponRemovedPayload = {
    * The checkout session context.
    */
   checkout: Checkout;
+  /**
+   * Marketing campaign attribution for the event, if available.
+   */
+  campaign?: Campaign;
   /**
    * Custom additional properties.
    */
@@ -1493,6 +1573,10 @@ type PromotionViewedPayload = {
    */
   promotionTitle?: string;
   /**
+   * Marketing campaign attribution for the event, if available.
+   */
+  campaign?: Campaign;
+  /**
    * Custom additional properties.
    */
   customProperties?: Record<string, Primitive>;
@@ -1507,6 +1591,10 @@ type PromotionClickedPayload = {
    * Human-readable title of the promotion.
    */
   promotionTitle?: string;
+  /**
+   * Marketing campaign attribution for the event, if available.
+   */
+  campaign?: Campaign;
   /**
    * Custom additional properties.
    */
@@ -1698,6 +1786,10 @@ type IncentiveRedeemedPayload = {
    */
   redeemerTitle?: string;
   /**
+   * Marketing campaign attribution for the event, if available.
+   */
+  campaign?: Campaign;
+  /**
    * Custom additional properties.
    */
   customProperties?: Record<string, Primitive>;
@@ -1724,6 +1816,10 @@ type IncentiveClaimedPayload = {
    * Descriptive title of the source.
    */
   sourceTitle?: string;
+  /**
+   * Marketing campaign attribution for the event, if available.
+   */
+  campaign?: Campaign;
   /**
    * Custom additional properties.
    */
@@ -1764,6 +1860,10 @@ type ChallengeStartedPayload = {
    * The challenge that was started.
    */
   challenge: Challenge;
+  /**
+   * Marketing campaign attribution for the event, if available.
+   */
+  campaign?: Campaign;
   /**
    * Custom additional properties.
    */
