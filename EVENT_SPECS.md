@@ -768,6 +768,10 @@ type ClickedPayload = {
    */
   elementTitle?: string;
   /**
+   * Marketing campaign attribution for the event, if available.
+   */
+  campaign?: Campaign;
+  /**
    * Custom additional properties.
    */
   customProperties?: Record<string, Primitive>;
